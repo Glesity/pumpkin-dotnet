@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Pumpkin.DotNet.SourceGenerator/Pumpkin.DotNet.SourceGenerator.csproj" />
+    <Project Path="src/Pumpkin.DotNet.Api/Pumpkin.DotNet.Api.csproj" />
+    <Project Path="src/Pumpkin.DotNet.Runtime/Pumpkin.DotNet.Runtime.csproj" />
+    <Project Path="src/Pumpkin.DotNet.Sdk/Pumpkin.DotNet.Sdk.csproj" />
+    <Project Path="tools/Pumpkin.DotNet.Tools.WitPostProcessor/Pumpkin.DotNet.Tools.WitPostProcessor.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Pumpkin.DotNet.Tests/Pumpkin.DotNet.Tests.csproj" />
+  </Folder>
+</Solution>

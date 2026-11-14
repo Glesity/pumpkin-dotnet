@@ -1,0 +1,71 @@
+<Project>
+
+  <PropertyGroup>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">wasi-wasm</RuntimeIdentifier>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference
+      Include="BytecodeAlliance.Componentize.DotNet.Wasm.SDK"
+      Version="0.8.0-preview00011" />
+
+    <PackageReference
+      Condition="$([MSBuild]::IsOSPlatform('Linux'))"
+      Include="runtime.linux-x64.Microsoft.DotNet.ILCompiler.LLVM"
+      Version="10.0.0-rc.1.26306.1" />
+
+    <PackageReference
+      Condition="$([MSBuild]::IsOSPlatform('Windows'))"
+      Include="runtime.win-x64.Microsoft.DotNet.ILCompiler.LLVM"
+      Version="10.0.0-rc.1.26306.1" />
+
+    <PackageReference
+      Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+      Include="runtime.osx-x64.Microsoft.DotNet.ILCompiler.LLVM"
+      Version="10.0.0-rc.1.26306.1" />
+  </ItemGroup>
+
+  <Target
+    Name="PumpkinDotNetAddComponentType"
+    BeforeTargets="LinkNativeLlvm">
+
+    <PropertyGroup>
+      <_PackagedComponentTypeWit>$(MSBuildThisFileDirectory)..\wit\PluginWorld_component_type.wit</_PackagedComponentTypeWit>
+      <_LocalComponentTypeWit>$(MSBuildThisFileDirectory)..\..\Pumpkin.DotNet.Runtime\obj\Release\net11.0\wit_bindgen\PluginWorld_component_type.wit</_LocalComponentTypeWit>
+
+      <_ResolvedComponentTypeWit Condition="Exists('$(_PackagedComponentTypeWit)')">$(_PackagedComponentTypeWit)</_ResolvedComponentTypeWit>
+      <_ResolvedComponentTypeWit Condition="'$(_ResolvedComponentTypeWit)' == '' And Exists('$(_LocalComponentTypeWit)')">$(_LocalComponentTypeWit)</_ResolvedComponentTypeWit>
+    </PropertyGroup>
+
+    <Error
+      Condition="'$(_ResolvedComponentTypeWit)' == ''"
+      Text="Pumpkin.DotNet.Sdk: 'PluginWorld_component_type.wit' was not found. When building locally from the repository, build Pumpkin.DotNet.Runtime in Release configuration first." />
+
+    <ItemGroup>
+      <PumpkinComponentTypeWit Include="$(_ResolvedComponentTypeWit)" />
+      <PumpkinComponentTypeWitAbsolute Include="@(PumpkinComponentTypeWit->'%(FullPath)')" />
+      <CustomLinkerArg
+        Include="@(PumpkinComponentTypeWitAbsolute->Replace('\', '/')->'-Wl,--component-type=&quot;%(Identity)&quot;')" />
+    </ItemGroup>
+
+  </Target>
+
+  <ItemGroup>
+    <UnmanagedEntryPointsAssembly Include="Pumpkin.DotNet.Runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <CompilerVisibleProperty Include="PluginName" />
+    <CompilerVisibleProperty Include="Version" />
+    <CompilerVisibleProperty Include="Authors" />
+    <CompilerVisibleProperty Include="Description" />
+    <CompilerVisibleProperty Include="AssemblyName" />
+  </ItemGroup>
+
+  <Import
+    Project="Sdk.targets"
+    Sdk="Microsoft.NET.Sdk" />
+
+</Project>

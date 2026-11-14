@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+  
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+
+    <PackageVersion>0.1.0-alpha</PackageVersion>    
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Pumpkin.DotNet.Runtime\Pumpkin.DotNet.Runtime.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Sdk\**" Pack="true" PackagePath="Sdk\" />
+    <Content Include="$(MSBuildThisFileDirectory)..\..\wit\v0.1\*" Pack="true" PackagePath="wit\" />
+    <None Include="..\Pumpkin.DotNet.Runtime\obj\$(Configuration)\net11.0\wit_bindgen\PluginWorld_component_type.wit"
+          Pack="true"
+          PackagePath="wit\" />
+  </ItemGroup>
+
+</Project>

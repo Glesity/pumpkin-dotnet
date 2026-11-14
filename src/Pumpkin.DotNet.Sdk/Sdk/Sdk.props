@@ -1,0 +1,48 @@
+<Project>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
+  <PropertyGroup>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsTrimmable>true</IsTrimmable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
+    <NativeDebugSymbols>false</NativeDebugSymbols>
+    <StripSymbols>true</StripSymbols>
+    
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetricsSupport>false</MetricsSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+
+    <IlcSingleThreaded>false</IlcSingleThreaded>
+
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>true</PublishTrimmed>
+    <UseAppHost>false</UseAppHost>
+
+    <PumpkinDotNetVersion>0.1.0-alpha</PumpkinDotNetVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Pumpkin.DotNet.Api"
+                      Version="$(PumpkinDotNetVersion)" />
+
+    <PackageReference Include="Pumpkin.DotNet.Runtime"
+                      Version="$(PumpkinDotNetVersion)"
+                       />
+    <PackageReference Include="Pumpkin.DotNet.SourceGenerator"
+                      Version="$(PumpkinDotNetVersion)"
+                      PrivateAssets="all"
+                      GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <RestoreAdditionalProjectSources>$(RestoreAdditionalProjectSources);https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-experimental/nuget/v3/index.json</RestoreAdditionalProjectSources>
+  </PropertyGroup>
+
+</Project>

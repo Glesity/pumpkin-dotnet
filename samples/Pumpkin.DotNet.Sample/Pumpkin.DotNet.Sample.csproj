@@ -1,0 +1,10 @@
+<Project Sdk="Pumpkin.DotNet.Sdk/0.1.0-alpha">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <PluginName>Sample</PluginName>
+    <Version>0.1.0</Version>
+    <Authors>nixomi, popa</Authors>
+  </PropertyGroup>
+
+</Project>

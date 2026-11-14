@@ -1,0 +1,6 @@
+[submodule "pumpkin"]
+	path = pumpkin
+	url = https://github.com/Pumpkin-MC/Pumpkin
+[submodule "wit"]
+	path = wit
+	url = https://github.com/Pumpkin-MC/pumpkin-plugin-wit
