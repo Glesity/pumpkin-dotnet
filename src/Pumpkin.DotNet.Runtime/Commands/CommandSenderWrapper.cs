@@ -91,23 +91,20 @@ internal sealed class CommandSenderWrapper : ICommandSender
 
     public void SendMessage(Component message)
     {
-        string json = ComponentBridge.ToJson(message);
-        var witText = ITextImports.TextComponent.FromJson(json);
-        _nativeSender.SendMessage(witText); // SendMessage takes ownership (Handle = 0).
+        using var text = new NativeTextScope(message);
+        _nativeSender.SendMessage(text.Native);
     }
 
     public void SendSystemMessage(Component message)
     {
-        string json = ComponentBridge.ToJson(message);
-        var witText = ITextImports.TextComponent.FromJson(json);
-        _nativeSender.SendSystemMessage(witText);
+        using var text = new NativeTextScope(message);
+        _nativeSender.SendSystemMessage(text.Native);
     }
 
     public void SendError(Component message)
     {
-        string json = ComponentBridge.ToJson(message);
-        var witText = ITextImports.TextComponent.FromJson(json);
-        _nativeSender.SendError(witText);
+        using var text = new NativeTextScope(message);
+        _nativeSender.SendError(text.Native);
     }
 
     public void SetSuccessCount(int count)
