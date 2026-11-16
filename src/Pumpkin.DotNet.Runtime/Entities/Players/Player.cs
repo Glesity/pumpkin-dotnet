@@ -12,8 +12,21 @@ internal sealed class Player : IPlayer, IDisposable
     private readonly NativePlayerOwnership _ownership;
     private int _disposed;
 
-    internal IPlayerImports.Player NativePlayer { get; }
+    internal IPlayerImports.Player NativePlayer
+    {
+        get
+        {
+            if (_disposed == 1 || field is null || field.Handle == 0)
+            {
+                throw new ObjectDisposedException(
+                    nameof(IPlayer),
+                    "IPlayer resource handle is no longer valid (likely accessed outside the synchronous event scope or across an 'await'). Capture Player.Uuid before awaiting and resolve the player via IServer.GetPlayer(uuid)."
+                );
+            }
 
+            return field;
+        }
+    }
     public Guid Id 
     {
         get

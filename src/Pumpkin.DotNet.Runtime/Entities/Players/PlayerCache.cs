@@ -91,7 +91,7 @@ internal static class PlayerCache
         }
         catch (Exception ex)
         {
-            Logger.Error($"[PlayerCache] Failed to release player handle: {ex}");
+            Logger.Error($"Failed to release player handle: {ex}");
         }
     }
 
@@ -101,9 +101,10 @@ internal static class PlayerCache
         {
             nativePlayer.Dispose();
         }
+        catch (ObjectDisposedException) {}
         catch (Exception ex)
         {
-            Logger.Error($"[PlayerCache] Failed to release handle: {ex}");
+            Logger.Error($"Failed to release handle: {ex}");
         }
     }
 }

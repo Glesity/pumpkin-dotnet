@@ -3,6 +3,7 @@ using Pumpkin.DotNet.Api.Commands;
 using Pumpkin.DotNet.Api.Events;
 using Pumpkin.DotNet.Api.Events.Player;
 using Pumpkin.DotNet.Api.Plugins;
+using Pumpkin.DotNet.Api.Server;
 using Pumpkin.DotNet.Runtime.Commands;
 using Pumpkin.DotNet.Runtime.Context;
 using Pumpkin.DotNet.Runtime.Entities.Players;
@@ -26,8 +27,18 @@ public class PumpkinRuntime
     {
         get
         {
-            return _nativeServer ??
+            if (_nativeServer is null)
                 throw new InvalidOperationException("NativeServer is only available during an active host callback.");
+
+            if (_nativeServer.Handle == 0)
+            {
+                throw new ObjectDisposedException(
+                    nameof(IServer),
+                    "IServer resource handle is no longer valid (the server context has been disposed or accessed outside of an active plugin execution scope)."
+                );
+            }
+
+            return _nativeServer;
         }
     }
 
