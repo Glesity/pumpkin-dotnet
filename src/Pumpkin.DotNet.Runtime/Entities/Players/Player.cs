@@ -1,4 +1,3 @@
-using System.Threading;
 using PluginWorld.wit.Imports.pumpkin.plugin.v0_1_0;
 using Pumpkin.DotNet.Api.Text;
 using Pumpkin.DotNet.Api.Entities;
@@ -10,40 +9,37 @@ namespace Pumpkin.DotNet.Runtime.Entities.Players;
 internal sealed class Player : IPlayer, IDisposable
 {
     private readonly NativePlayerOwnership _ownership;
-    private int _disposed;
+    private IPlayerImports.Player? _nativePlayer;
+    private bool _disposed;
 
     internal IPlayerImports.Player NativePlayer
     {
         get
         {
-            if (_disposed == 1 || field is null || field.Handle == 0)
+            var player = _nativePlayer;
+            if (_disposed || player is null || player.Handle == 0)
             {
                 throw new ObjectDisposedException(
                     nameof(IPlayer),
-                    "IPlayer resource handle is no longer valid (likely accessed outside the synchronous event scope or across an 'await'). Capture Player.Uuid before awaiting and resolve the player via IServer.GetPlayer(uuid)."
+                    "IPlayer resource handle is no longer valid (likely accessed outside the synchronous event scope or across an 'await'). Capture Player.Id before awaiting and resolve the player via IServer.GetPlayer(id)."
                 );
             }
 
-            return field;
-        }
-    }
-    public Guid Id 
-    {
-        get
-        {
-            if (field == Guid.Empty)
-                field = NativePlayer.GetId().ToGuid();
-
-            return field;
+            return player;
         }
     }
 
-    public string Name => field ??= NativePlayer.GetName();
+    public Guid Id { get; }
+
+    public string Name { get; }
 
     private Player(IPlayerImports.Player player, NativePlayerOwnership ownership)
     {
-        NativePlayer = player;
+        _nativePlayer = player;
         _ownership = ownership;
+
+        Id = player.GetId().ToGuid();
+        Name = player.GetName();
     }
 
     internal static Player CreateOwned(IPlayerImports.Player player) =>
@@ -60,10 +56,14 @@ internal sealed class Player : IPlayer, IDisposable
 
     public void Dispose()
     {
-        if (_ownership == NativePlayerOwnership.Owned &&
-            Interlocked.Exchange(ref _disposed, 1) == 0)
+        if (_disposed)
+            return;
+
+        var player = _nativePlayer;
+
+        if (_ownership == NativePlayerOwnership.Owned && player is not null && player.Handle != 0)
         {
-            NativePlayer.Dispose();
+            player.Dispose();
         }
     }
 
