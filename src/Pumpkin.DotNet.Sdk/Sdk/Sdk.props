@@ -4,28 +4,34 @@
 
   <PropertyGroup>
     <TargetFramework Condition="'$(TargetFramework)' == ''">net11.0</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">wasi-wasm</RuntimeIdentifier>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>
+    <TrimMode>full</TrimMode>
     <DebugSymbols>false</DebugSymbols>
     <DebugType>none</DebugType>
     <NativeDebugSymbols>false</NativeDebugSymbols>
     <StripSymbols>true</StripSymbols>
+
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Size</OptimizationPreference>
     
     <DebuggerSupport>false</DebuggerSupport>
     <EventSourceSupport>false</EventSourceSupport>
     <MetricsSupport>false</MetricsSupport>
     <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
 
-    <IlcSingleThreaded>false</IlcSingleThreaded>
-
     <SelfContained>true</SelfContained>
     <PublishTrimmed>true</PublishTrimmed>
     <UseAppHost>false</UseAppHost>
 
     <PumpkinDotNetVersion>0.1.0-alpha</PumpkinDotNetVersion>
+
+    <StackTraceSupport>false</StackTraceSupport>
+    <IlcDisableReflection>true</IlcDisableReflection>
   </PropertyGroup>
 
   <ItemGroup>

@@ -7,8 +7,10 @@
 
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>
+    <TrimMode>full</TrimMode>
 
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    
     <!-- The SDK target in preview00011 contains a typo in this property name. -->
     <WitBindgenAdditionalArgs>--internal</WitBindgenAdditionalArgs>
     <WitBindgenAddtionalArgs>--internal</WitBindgenAddtionalArgs>
