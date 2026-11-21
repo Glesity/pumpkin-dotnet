@@ -1,4 +1,4 @@
-# 🎃 Pumpkin.DotNet
+# 🎃 Pumpkin.NET
 
 A custom MSBuild SDK, Roslyn Source Generator, and runtime framework for writing native WebAssembly (**WASI Component Model**) plugins for the **[Pumpkin](https://github.com/Pumpkin-MC/Pumpkin)** Minecraft server in C# (.NET 11).
 
