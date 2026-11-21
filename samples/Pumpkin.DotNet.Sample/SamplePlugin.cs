@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Pumpkin.DotNet.Api.Commands;
 using Pumpkin.DotNet.Api.Events;
 using Pumpkin.DotNet.Api.Events.Player;
@@ -67,7 +62,7 @@ public static class HelloCommands
     public static void Root(ICommandContext ctx)
     {
         ctx.Sender.SendMessage(
-            TextComponent.Text("Hello from Pumpkin.DotNet! Try: /hello player <name> or /hello countdown [seconds]")
+            TextComponent.Text("Hello from Pumpkin.NET! Try: /hello countdown [seconds]")
                 .WithColor(TextColor.Yellow)
         );
     }
@@ -82,14 +77,6 @@ public static class HelloCommands
         PumpkinTask.Spawn(async ct => await RunCountdownAsync(server, seconds, ct));
         ctx.Sender.SendMessage(TextComponent.Text($"Started {seconds}s countdown.").WithColor(TextColor.Aqua));
         return 1;
-    }
-
-    public static IEnumerable<string> SuggestOnlinePlayers(IServer server, string input)
-    {
-        return server.Players
-            .AsEnumerable()
-            .Select(p => p.Name)
-            .Where(name => name.StartsWith(input, StringComparison.OrdinalIgnoreCase));
     }
 
     private static async ValueTask RunCountdownAsync(IServer server, int seconds, CancellationToken ct)
