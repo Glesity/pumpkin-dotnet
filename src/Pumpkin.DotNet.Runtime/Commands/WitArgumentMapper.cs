@@ -118,7 +118,7 @@ internal static class WitArgumentMapper
         var list = new List<IPlayer>(nativePlayers.Count);
         foreach (var p in nativePlayers)
         {
-            list.Add(PlayerCache.GetBorrowed(p));
+            list.Add(PlayerCache.GetOrBorrow(p));
         }
         return list;
     }

@@ -1,25 +1,34 @@
 using PluginWorld.wit.Imports.pumpkin.plugin.v0_1_0;
 using Pumpkin.DotNet.Api.Entities;
 using Pumpkin.DotNet.Api.Server;
-using Pumpkin.DotNet.Runtime.Entities;
 using Pumpkin.DotNet.Runtime.Entities.Players;
 using Pumpkin.DotNet.Runtime.Entities.Query;
 using Pumpkin.DotNet.Runtime.Interop;
 
 namespace Pumpkin.DotNet.Runtime.Server;
 
-internal class PumpkinServer : IServer
+internal sealed class PumpkinServer : WitResource<IServerImports.Server>, IServer
 {
-    public IServerImports.Server NativeServer => PumpkinRuntime.Instance.NativeServer;
-    private readonly PlayerQueryable _playerQuerable = new(new PlayerQueryProvider());
+    private readonly PlayerQueryable _playerQueryable = new(new PlayerQueryProvider());
 
-    public SystemInfo SystemInfo => NativeServer.GetSysInfo().ToApi();
+    private PumpkinServer(IServerImports.Server handle, bool ownsHandle = true) 
+        : base(handle, ownsHandle)
+    {    
+    }
 
-    public double Mspt => NativeServer.GetMspt();
+    internal static PumpkinServer CreateOwned(IServerImports.Server server) =>
+        new(server, ownsHandle: true);
 
-    public double Tps => NativeServer.GetTps();
+    internal static PumpkinServer CreateBorrowed(IServerImports.Server server) =>
+        new(server, ownsHandle: false);
 
-    public Difficulty Difficulty => NativeServer.GetDifficulty() switch
+    public SystemInfo SystemInfo => Handle.GetSysInfo().ToApi();
+
+    public double Mspt => Handle.GetMspt();
+
+    public double Tps => Handle.GetTps();
+
+    public Difficulty Difficulty => Handle.GetDifficulty() switch
     {
         IServerImports.Difficulty.PEACEFUL => Difficulty.Peaceful,
         IServerImports.Difficulty.EASY => Difficulty.Easy,
@@ -28,14 +37,14 @@ internal class PumpkinServer : IServer
         _ => default
     };
 
-    public IQueryable<IPlayer> Players => _playerQuerable;
+    public IQueryable<IPlayer> Players => _playerQueryable;
     
     public IPlayer? GetPlayer(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
             return null;
 
-        var nativePlayer = NativeServer.GetPlayerByName(name);
+        var nativePlayer = Handle.GetPlayerByName(name);
 
         if (nativePlayer is null)
             return null;
@@ -48,7 +57,7 @@ internal class PumpkinServer : IServer
         if (id == Guid.Empty)
             return null;
 
-        var nativePlayer = NativeServer.GetPlayerByUuid(id.ToWit());
+        var nativePlayer = Handle.GetPlayerByUuid(id.ToWit());
 
         if (nativePlayer is null)
             return null;
@@ -58,6 +67,6 @@ internal class PumpkinServer : IServer
 
     public void Broadcast(string message)
     {
-        NativeServer.Broadcast(message);
+        Handle.Broadcast(message);
     }
 }

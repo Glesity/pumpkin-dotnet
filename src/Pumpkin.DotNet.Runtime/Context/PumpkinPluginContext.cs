@@ -7,7 +7,7 @@ using Pumpkin.DotNet.Runtime.Server;
 
 namespace Pumpkin.DotNet.Runtime.Context;
 
-internal record PumpkinPluginContext(
-    IServer Server,
-    ILogger Logger
-) : IPluginContext;
+internal sealed record PumpkinPluginContext(ILogger Logger) : IPluginContext
+{
+    public IServer Server => PumpkinRuntime.Instance.Server;
+}

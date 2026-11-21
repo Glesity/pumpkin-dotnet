@@ -3,7 +3,6 @@ using Pumpkin.DotNet.Api.Commands;
 using Pumpkin.DotNet.Api.Events;
 using Pumpkin.DotNet.Api.Events.Player;
 using Pumpkin.DotNet.Api.Plugins;
-using Pumpkin.DotNet.Api.Server;
 using Pumpkin.DotNet.Runtime.Commands;
 using Pumpkin.DotNet.Runtime.Context;
 using Pumpkin.DotNet.Runtime.Entities.Players;
@@ -19,32 +18,16 @@ public class PumpkinRuntime
     public static PumpkinRuntime Instance => field ??= new PumpkinRuntime();
 
     public bool IsLoaded { get; private set; }
-    private IServerImports.Server? _nativeServer;
 
     private PumpkinRuntime() { }
 
-    internal IServerImports.Server NativeServer
-    {
-        get
-        {
-            if (_nativeServer is null)
-                throw new InvalidOperationException("NativeServer is only available during an active host callback.");
+    private PumpkinServer? _server;
 
-            if (_nativeServer.Handle == 0)
-            {
-                throw new ObjectDisposedException(
-                    nameof(IServer),
-                    "IServer resource handle is no longer valid (the server context has been disposed or accessed outside of an active plugin execution scope)."
-                );
-            }
-
-            return _nativeServer;
-        }
-    }
+    internal PumpkinServer Server =>
+        _server ?? throw new InvalidOperationException("IServer is only available during an active host callback.");
 
     internal PumpkinLogger Logger { get; private set; } = PumpkinLogger.CreateLogger<PumpkinRuntime>();
     internal PumpkinScheduler Scheduler { get; private set; } = new();
-    internal PumpkinServer Server { get; private set; } = new();
 
     internal PumpkinPlugin Plugin { get; private set; } = null!;
     internal PluginMetadata Metadata { get; private set; } = null!;
@@ -85,13 +68,12 @@ public class PumpkinRuntime
 
         ArgumentNullException.ThrowIfNull(context);
 
-        using var nativeServer = context.GetServer();
-        WithNativeServer(nativeServer, () =>
+        using var server = PumpkinServer.CreateOwned(context.GetServer());
+        WithServer(server, () =>
         {
             try
             {
                 var pluginContext = new PumpkinPluginContext(
-                    Server,
                     PumpkinLogger.CreateLogger(Metadata.Name ?? "Plugin")
                 );
 
@@ -127,8 +109,8 @@ public class PumpkinRuntime
 
         ArgumentNullException.ThrowIfNull(context);
 
-        using var nativeServer = context.GetServer();
-        WithNativeServer(nativeServer, () =>
+        using var server = PumpkinServer.CreateOwned(context.GetServer());
+        WithServer(server, () =>
         {
             try
             {
@@ -167,7 +149,8 @@ public class PumpkinRuntime
         if (!IsLoaded)
             return;
 
-        WithNativeServer(server, Scheduler.Tick);
+        using var scopedServer = PumpkinServer.CreateBorrowed(server);
+        WithServer(scopedServer, Scheduler.Tick);
     }
 
     internal IEventImports.Event HandleEvent(uint eventId, IEventImports.Event @event, IServerImports.Server server)
@@ -175,7 +158,8 @@ public class PumpkinRuntime
         if (!IsLoaded)
             return @event;
 
-        return WithNativeServer(server, () => EventDispatcher.Dispatch(eventId, @event));
+        using var scopedServer = PumpkinServer.CreateBorrowed(server);
+        return WithServer(scopedServer, () => EventDispatcher.Dispatch(eventId, @event));
     }
 
     internal int HandleCommand(uint commandId, ICommandImports.CommandSender sender, IServerImports.Server server, ICommandImports.ConsumedArgs args)
@@ -183,7 +167,8 @@ public class PumpkinRuntime
         if (!IsLoaded)
             return 0;
 
-        return WithNativeServer(server, () => CommandRegistry.Instance.DispatchExecute(commandId, sender, server, args));
+        using var scopedServer = PumpkinServer.CreateBorrowed(server);
+        return WithServer(scopedServer, () => CommandRegistry.Instance.DispatchExecute(commandId, sender, scopedServer, args));
     }
 
     internal ICommandImports.CommandSuggestions HandleSuggestion(uint handlerId, ICommandImports.CommandSender sender, IServerImports.Server server, ICommandImports.SuggestionRequest request)
@@ -191,34 +176,35 @@ public class PumpkinRuntime
         if (!IsLoaded)
             return new ICommandImports.CommandSuggestions(request.start, (uint)request.remaining.Length, []);
 
-        return WithNativeServer(server, () => CommandRegistry.Instance.DispatchSuggestion(handlerId, sender, server, request));
+        using var scopedServer = PumpkinServer.CreateBorrowed(server);
+        return WithServer(scopedServer, () => CommandRegistry.Instance.DispatchSuggestion(handlerId, sender, scopedServer, request));
     }
 
-    private void WithNativeServer(IServerImports.Server server, Action action)
+    private void WithServer(PumpkinServer server, Action action)
     {
-        var previousServer = _nativeServer;
-        _nativeServer = server;
+        var previousServer = _server;
+        _server = server;
         try
         {
             action();
         }
         finally
         {
-            _nativeServer = previousServer;
+            _server = previousServer;
         }
     }
 
-    private T WithNativeServer<T>(IServerImports.Server server, Func<T> action)
+    private T WithServer<T>(PumpkinServer server, Func<T> action)
     {
-        var previousServer = _nativeServer;
-        _nativeServer = server;
+        var previousServer = _server;
+        _server = server;
         try
         {
             return action();
         }
         finally
         {
-            _nativeServer = previousServer;
+            _server = previousServer;
         }
     }
 }

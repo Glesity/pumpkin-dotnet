@@ -1,24 +1,24 @@
-namespace Pumpkin.DotNet.Runtime.Text;
-
-using System;
 using System.Runtime.CompilerServices;
 using PluginWorld.wit.Imports.pumpkin.plugin.v0_1_0;
 using Pumpkin.DotNet.Api.Logging;
 using Pumpkin.DotNet.Api.Text;
 using Pumpkin.DotNet.Runtime.Logging;
 
-internal readonly ref struct NativeTextScope
+namespace Pumpkin.DotNet.Runtime.Text;
+
+internal readonly ref struct WitTextScope
 {
     private static ILogger logger = PumpkinLogger.CreateLogger("NativeTextScope");
 
-    public ITextImports.TextComponent Native
+    public ITextImports.TextComponent Handle
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get
         {   
             if (field is null || field.Handle == 0)
                 throw new ObjectDisposedException(
-                    nameof(NativeTextScope),
-                    "NativeTextScope resource handle is no longer valid"
+                    nameof(WitTextScope),
+                    "WitTextScope resource handle is no longer valid"
                 );
 
             return field;
@@ -26,16 +26,16 @@ internal readonly ref struct NativeTextScope
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public NativeTextScope(Component? component)
+    public WitTextScope(Component? component)
     {
         string json = ComponentBridge.ToJson(component);
-        Native = ITextImports.TextComponent.FromJson(json);
+        Handle = ITextImports.TextComponent.FromJson(json);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public NativeTextScope(ITextImports.TextComponent native)
+    public WitTextScope(ITextImports.TextComponent native)
     {
-        Native = native;
+        Handle = native;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -43,7 +43,7 @@ internal readonly ref struct NativeTextScope
     {
         try
         {
-            Native?.Dispose();
+            Handle?.Dispose();
         }
         catch (ObjectDisposedException) {}
         catch (Exception ex)

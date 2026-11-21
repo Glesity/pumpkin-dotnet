@@ -19,7 +19,7 @@ internal sealed class PlayerChatEventAdapter : BaseEventAdapter<PlayerChatEvent>
         {
             if (recipients[i] is Player p)
             {
-                nativeRecipients.Add(p.NativePlayer);
+                nativeRecipients.Add(p.WitHandle);
             }
         }
 
@@ -41,9 +41,9 @@ internal sealed class PlayerChatEventAdapter : BaseEventAdapter<PlayerChatEvent>
 
         return new PlayerChatEvent()
         {
-            Player = PlayerCache.GetBorrowed(data.player),
+            Player = PlayerCache.GetOrBorrow(data.player),
             Message = data.message,
-            Recipients = [.. data.recipients.Select(PlayerCache.GetBorrowed)],
+            Recipients = [.. data.recipients.Select(PlayerCache.GetOrBorrow)],
             Signature = data.signature,
             IsCancelled = data.cancelled
         };

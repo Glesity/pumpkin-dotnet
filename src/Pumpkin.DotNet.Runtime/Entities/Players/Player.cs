@@ -6,70 +6,39 @@ using Pumpkin.DotNet.Runtime.Text;
 
 namespace Pumpkin.DotNet.Runtime.Entities.Players;
 
-internal sealed class Player : IPlayer, IDisposable
+internal sealed class Player : WitResource<IPlayerImports.Player>, IPlayer, IEquatable<Player>
 {
-    private readonly NativePlayerOwnership _ownership;
-    private IPlayerImports.Player? _nativePlayer;
-    private bool _disposed;
-
-    internal IPlayerImports.Player NativePlayer
-    {
-        get
-        {
-            var player = _nativePlayer;
-            if (_disposed || player is null || player.Handle == 0)
-            {
-                throw new ObjectDisposedException(
-                    nameof(IPlayer),
-                    "IPlayer resource handle is no longer valid (likely accessed outside the synchronous event scope or across an 'await'). Capture Player.Id before awaiting and resolve the player via IServer.GetPlayer(id)."
-                );
-            }
-
-            return player;
-        }
-    }
-
     public Guid Id { get; }
 
     public string Name { get; }
 
-    private Player(IPlayerImports.Player player, NativePlayerOwnership ownership)
+    private Player(IPlayerImports.Player handle, bool ownsHandle = true) 
+        : base(handle, ownsHandle)
     {
-        _nativePlayer = player;
-        _ownership = ownership;
-
-        Id = player.GetId().ToGuid();
-        Name = player.GetName();
+        Id = handle.GetId().ToGuid();
+        Name = handle.GetName();
     }
 
     internal static Player CreateOwned(IPlayerImports.Player player) =>
-        new(player, NativePlayerOwnership.Owned);
+        new(player, true);
 
     internal static Player CreateBorrowed(IPlayerImports.Player player) =>
-        new(player, NativePlayerOwnership.Borrowed);
+        new(player, false);
 
     public void SendMessage(Component message)
     {
-        using var scope = new NativeTextScope(message);
-        NativePlayer.SendSystemMessage(scope.Native, false);
+        using var scope = new WitTextScope(message);
+        Handle.SendSystemMessage(scope.Handle, false);
     }
 
-    public void Dispose()
+    public bool Equals(Player? other)
     {
-        if (_disposed)
-            return;
+        if (other is null) return false;
+        if (ReferenceEquals(this, other)) return true;
 
-        var player = _nativePlayer;
-
-        if (_ownership == NativePlayerOwnership.Owned && player is not null && player.Handle != 0)
-        {
-            player.Dispose();
-        }
+        return Id.Equals(other.Id);
     }
 
-    private enum NativePlayerOwnership
-    {
-        Owned,
-        Borrowed
-    }
+    public override bool Equals(object? obj) => Equals(obj as Player);
+    public override int GetHashCode() => Id.GetHashCode();
 }

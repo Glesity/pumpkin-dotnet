@@ -6,6 +6,7 @@ using System.Linq;
 using PluginWorld.wit.Imports.pumpkin.plugin.v0_1_0;
 using Pumpkin.DotNet.Api.Commands;
 using Pumpkin.DotNet.Api.Permissions;
+using Pumpkin.DotNet.Runtime.Server;
 
 internal sealed class CommandRegistry
 {
@@ -131,25 +132,25 @@ internal sealed class CommandRegistry
     public bool DispatchRequirement(
         uint handlerId,
         ICommandImports.CommandSender nativeSender,
-        IServerImports.Server nativeServer)
+        PumpkinServer server)
     {
         if (!_requirements.TryGetValue(handlerId, out var predicate))
             return false;
 
-        var sender = new CommandSenderWrapper(nativeSender, nativeServer);
+        var sender = new CommandSenderWrapper(nativeSender, server);
         return predicate(sender);
     }
 
     public int DispatchExecute(
         uint commandId,
         ICommandImports.CommandSender nativeSender,
-        IServerImports.Server nativeServer,
+        PumpkinServer server,
         ICommandImports.ConsumedArgs nativeArgs)
     {
         if (!_executors.TryGetValue(commandId, out var bound))
             return 0;
 
-        var sender = new CommandSenderWrapper(nativeSender, nativeServer);
+        var sender = new CommandSenderWrapper(nativeSender, server);
         var extractedArgs = new Dictionary<string, object?>(bound.ArgNames.Length, StringComparer.OrdinalIgnoreCase);
 
         foreach (var argName in bound.ArgNames)
@@ -172,7 +173,7 @@ internal sealed class CommandRegistry
     public ICommandImports.CommandSuggestions DispatchSuggestion(
         uint handlerId,
         ICommandImports.CommandSender nativeSender,
-        IServerImports.Server nativeServer,
+        PumpkinServer server,
         ICommandImports.SuggestionRequest request)
     {
         if (!_suggesters.TryGetValue(handlerId, out var suggester))
@@ -180,7 +181,7 @@ internal sealed class CommandRegistry
             return new ICommandImports.CommandSuggestions(request.start, (uint)request.remaining.Length, []);
         }
 
-        var sender = new CommandSenderWrapper(nativeSender, nativeServer);
+        var sender = new CommandSenderWrapper(nativeSender, server);
         var context = new CommandContext(sender, new Dictionary<string, object?>());
 
         var items = suggester(context, request.remaining)

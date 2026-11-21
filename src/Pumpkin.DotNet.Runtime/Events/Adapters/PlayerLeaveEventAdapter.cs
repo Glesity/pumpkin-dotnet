@@ -29,7 +29,7 @@ internal sealed class PlayerLeaveEventAdapter : BaseEventAdapter<PlayerLeaveEven
 
         return new PlayerLeaveEvent()
         {
-            Player = PlayerCache.GetBorrowed(data.player),
+            Player = PlayerCache.GetOrBorrow(data.player),
             LeaveMessage = data.leaveMessage.ToComponent(),
             IsCancelled = data.cancelled
         };

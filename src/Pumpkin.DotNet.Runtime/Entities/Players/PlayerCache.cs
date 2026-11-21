@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using PluginWorld.wit.Imports.pumpkin.plugin.v0_1_0;
 using Pumpkin.DotNet.Api.Entities;
 using Pumpkin.DotNet.Api.Logging;
@@ -16,8 +14,8 @@ internal static class PlayerCache
 
     /// <summary>
     /// Returns the cached owned Player or takes ownership of the incoming handle.
-    /// A duplicate owned handle is disposed if it is a separate wrapper.
-    /// </summary>
+    /// Any duplicate owned handle is immediately disposed.
+    /// </summary>  
     public static Player GetOrAddOwned(IPlayerImports.Player incoming)
     {
         ArgumentNullException.ThrowIfNull(incoming);
@@ -26,9 +24,7 @@ internal static class PlayerCache
 
         if (_byUuid.TryGetValue(uuid, out var cached))
         {
-            if (!ReferenceEquals(cached.NativePlayer, incoming))
-                DisposeNativePlayer(incoming);
-
+            DisposeNativePlayer(incoming);
             return cached;
         }
 
@@ -37,9 +33,23 @@ internal static class PlayerCache
         return player;
     }
 
-    public static Player GetBorrowed(IPlayerImports.Player eventPlayer)
+    /// <summary>
+    /// Returns a cached owned <see cref="Player"/> if available, or creates a transient
+    /// borrowed wrapper around <paramref name="eventPlayer"/> for the duration of the callback.
+    /// </summary>
+    /// <remarks>
+    /// Do NOT dispose the returned <see cref="Player"/> (e.g. via <c>using</c>): if it came from
+    /// the cache, disposing it will invalidate the shared instance for the entire plugin; if it is
+    /// borrowed, the host releases the underlying handle automatically when the callback returns.
+    /// </remarks>
+    public static Player GetOrBorrow(IPlayerImports.Player eventPlayer)
     {
         ArgumentNullException.ThrowIfNull(eventPlayer);
+        if (_byUuid.TryGetValue(eventPlayer.GetId().ToGuid(), out var cached))
+        {
+            return cached;
+        }
+
         return Player.CreateBorrowed(eventPlayer);
     }
 

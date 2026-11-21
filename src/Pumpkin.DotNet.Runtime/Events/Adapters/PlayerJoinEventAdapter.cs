@@ -31,7 +31,7 @@ internal sealed class PlayerJoinEventAdapter : BaseEventAdapter<PlayerJoinEvent>
 
         return new PlayerJoinEvent()
         {
-            Player = PlayerCache.GetBorrowed(@event.player),
+            Player = PlayerCache.GetOrBorrow(@event.player),
             JoinMessage = @event.joinMessage.ToComponent(),
             IsCancelled = @event.cancelled
         };

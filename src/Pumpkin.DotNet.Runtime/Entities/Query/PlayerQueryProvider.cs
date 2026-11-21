@@ -66,7 +66,7 @@ internal sealed class PlayerQueryProvider : IQueryProvider
         }
 
         // 3. Fetch all handles from the host.
-        var allHandles = PumpkinRuntime.Instance.Server.NativeServer.GetAllPlayers() ?? Enumerable.Empty<IPlayerImports.Player>();
+        var allHandles = PumpkinRuntime.Instance.Server.WitHandle.GetAllPlayers() ?? Enumerable.Empty<IPlayerImports.Player>();
         IEnumerable<IPlayer> players = allHandles.Select(h => (IPlayer)PlayerCache.GetOrAddOwned(h));
 
         if (visitor.Limit.HasValue)

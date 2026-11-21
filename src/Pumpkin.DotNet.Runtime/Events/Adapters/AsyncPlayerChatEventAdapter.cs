@@ -30,7 +30,7 @@ internal sealed class AsyncPlayerChatEventAdapter : BaseEventAdapter<AsyncPlayer
 
         return new AsyncPlayerChatEvent()
         {
-            Player = PlayerCache.GetBorrowed(data.player),
+            Player = PlayerCache.GetOrBorrow(data.player),
             Message = data.message,
             Format = data.format.ToComponent(),
             IsCancelled = data.cancelled

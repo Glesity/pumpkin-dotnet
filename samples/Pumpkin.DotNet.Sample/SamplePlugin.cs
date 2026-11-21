@@ -72,30 +72,6 @@ public static class HelloCommands
         );
     }
 
-    [Subcommand("player")]
-    [Execute]
-    public static int GreetPlayer(
-        ICommandContext ctx,
-        IServer server,
-        [Arg(Name = "target")] [Suggest(nameof(SuggestOnlinePlayers))] string targetName,
-        [Arg(Name = "message", StringMode = StringArgMode.Greedy)] string message = "Have a great game!")
-    {
-        var target = server.Players.FirstOrDefault(p => p.Name == targetName);
-        if (target is null)
-        {
-            ctx.Sender.SendMessage(TextComponent.Text($"Player '{targetName}' is not online.").WithColor(TextColor.Red));
-            return 0;
-        }
-
-        target.SendMessage(
-            TextComponent.Text($"[{ctx.Sender.Name} -> You] {message}").WithColor(TextColor.Gold)
-        );
-        ctx.Sender.SendMessage(
-            TextComponent.Text($"Message sent to {target.Name}.").WithColor(TextColor.Green)
-        );
-        return 1;
-    }
-
     [Subcommand("countdown", PermissionLevel = PermissionLevel.Two)]
     [Execute]
     public static int Countdown(
