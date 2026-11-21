@@ -1,4 +1,9 @@
 <Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Pumpkin.DotNet.Sample/Pumpkin.DotNet.Sample.csproj">
+      <Build Solution="*|*" Project="false" />
+    </Project>
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Pumpkin.DotNet.SourceGenerator/Pumpkin.DotNet.SourceGenerator.csproj" />
     <Project Path="src/Pumpkin.DotNet.Api/Pumpkin.DotNet.Api.csproj" />
