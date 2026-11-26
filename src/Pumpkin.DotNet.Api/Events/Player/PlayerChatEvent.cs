@@ -11,7 +11,7 @@ public sealed class PlayerChatEvent : ICancellableEvent
     /// Note: modifying this collection is currently not supported by the PumpkinMC host.
     /// </summary>
     [Obsolete("Recipients is currently ignored by the PumpkinMC host. Use IsCanceled and manual player.SendMessage for selective delivery.")]
-    public required IReadOnlyList<IPlayer> Recipients { get; init; }
+    public IReadOnlyList<IPlayer> Recipients { get; init; } = [];
     public byte[]? Signature { get; init; }
     public bool IsCancelled { get; set; }
 }
