@@ -15,7 +15,7 @@
     <WitBindgenAdditionalArgs>--internal</WitBindgenAdditionalArgs>
     <WitBindgenAddtionalArgs>--internal</WitBindgenAddtionalArgs>
 
-    <Version>0.1.0-alpha</Version>
+    <Version>0.2.0-alpha</Version>
     <PackageId>Pumpkin.DotNet.Runtime</PackageId>
 
     <NoWarn>$(NoWarn);CS0618;NETSDK1057</NoWarn>
@@ -23,18 +23,11 @@
 
   <ItemGroup>
     <PackageReference Include="BytecodeAlliance.Componentize.DotNet.WitBindgen" Version="0.8.0-preview00011" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="11.0.0" />
 
     <ProjectReference Include="..\Pumpkin.DotNet.Api\Pumpkin.DotNet.Api.csproj" />
-
-    <ProjectReference Include="..\Pumpkin.DotNet.SourceGenerator\Pumpkin.DotNet.SourceGenerator.csproj"
-                      ReferenceOutputAssembly="false"
-                      SkipGetTargetFrameworkProperties="true"
-                      PrivateAssets="all" />
-
-    <ProjectReference Include="..\..\tools\Pumpkin.DotNet.Tools.WitPostProcessor\Pumpkin.DotNet.Tools.WitPostProcessor.csproj"
-                      ReferenceOutputAssembly="false"
-                      SkipGetTargetFrameworkProperties="true"
-                      PrivateAssets="all" />
+    <ProjectReference Include="..\Pumpkin.DotNet.SourceGenerator\Pumpkin.DotNet.SourceGenerator.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" PrivateAssets="all" />
+    <ProjectReference Include="..\..\tools\Pumpkin.DotNet.Tools.WitPostProcessor\Pumpkin.DotNet.Tools.WitPostProcessor.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" PrivateAssets="all" />
   </ItemGroup>
 
   <UsingTask TaskName="StripWitInitPluginExportTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
@@ -67,9 +60,7 @@
   <!-- ============================================================
        Apply generated-code collision fixes
        ============================================================ -->
-  <Target Name="StripWitInitPluginExport"
-          BeforeTargets="CoreCompile"
-          DependsOnTargets="WitCompile_BeforeCsCompile">
+  <Target Name="StripWitInitPluginExport" BeforeTargets="CoreCompile" DependsOnTargets="WitCompile_BeforeCsCompile">
 
     <ItemGroup>
       <_WitPluginFile Include="$(ProjectDir)$(IntermediateOutputPath)wit_bindgen/**/*Plugin.cs" />
@@ -85,13 +76,9 @@
     <_WitPostProcessorProject>$(MSBuildThisFileDirectory)..\..\tools\Pumpkin.DotNet.Tools.WitPostProcessor\Pumpkin.DotNet.Tools.WitPostProcessor.csproj</_WitPostProcessorProject>
   </PropertyGroup>
 
-  <Target Name="RunWitPostProcessor"
-          BeforeTargets="CoreCompile"
-          DependsOnTargets="ResolveProjectReferences;WitCompile_BeforeCsCompile">
+  <Target Name="RunWitPostProcessor" BeforeTargets="CoreCompile" DependsOnTargets="ResolveProjectReferences;WitCompile_BeforeCsCompile">
 
-    <MSBuild Projects="$(_WitPostProcessorProject)"
-             Targets="GetTargetPath"
-             Properties="Configuration=$(Configuration)">
+    <MSBuild Projects="$(_WitPostProcessorProject)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
       <Output TaskParameter="TargetOutputs" PropertyName="_WitPostProcessorDll" />
     </MSBuild>
 
@@ -107,10 +94,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\Pumpkin.DotNet.SourceGenerator\bin\$(Configuration)\netstandard2.0\Pumpkin.DotNet.SourceGenerator.dll"
-          Pack="true"
-          PackagePath="analyzers\dotnet\cs\"
-          Visible="false" />
+    <None Include="..\Pumpkin.DotNet.SourceGenerator\bin\$(Configuration)\netstandard2.0\Pumpkin.DotNet.SourceGenerator.dll" Pack="true" PackagePath="analyzers\dotnet\cs\" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pumpkin.DotNet.Tests" />
   </ItemGroup>
 
 </Project>

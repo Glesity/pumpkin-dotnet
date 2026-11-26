@@ -1,4 +1,4 @@
-<Project Sdk="Pumpkin.DotNet.Sdk/0.1.0-alpha">
+<Project Sdk="Pumpkin.DotNet.Sdk/0.2.0-alpha">
 
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>

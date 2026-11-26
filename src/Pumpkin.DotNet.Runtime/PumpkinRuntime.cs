@@ -4,6 +4,7 @@ using Pumpkin.DotNet.Api.Events;
 using Pumpkin.DotNet.Api.Events.Player;
 using Pumpkin.DotNet.Api.Plugins;
 using Pumpkin.DotNet.Runtime.Commands;
+using Pumpkin.DotNet.Runtime.Configuration;
 using Pumpkin.DotNet.Runtime.Context;
 using Pumpkin.DotNet.Runtime.Entities.Players;
 using Pumpkin.DotNet.Runtime.Events;
@@ -34,6 +35,7 @@ public class PumpkinRuntime
 
     private Action<PumpkinPlugin, IEventRegistrar>? _eventBinder;
     private Action<PumpkinPlugin, ICommandManager>? _bindCommands;
+    private readonly ConfigBinderRegistry _configBinders = new();
 
     private CommandManager? _commandManager;
 
@@ -41,7 +43,8 @@ public class PumpkinRuntime
         PumpkinPlugin plugin,
         PluginMetadata metadata,
         Action<PumpkinPlugin, IEventRegistrar> eventBinds,
-        Action<PumpkinPlugin, ICommandManager>? bindCommands = null)
+        Action<PumpkinPlugin, ICommandManager>? bindCommands = null,
+        Action<IConfigBinderRegistrar>? bindConfigs = null)
     {
         if (Plugin is not null)
             throw new InvalidOperationException("Plugin is already registered.");
@@ -56,6 +59,8 @@ public class PumpkinRuntime
         _bindCommands = bindCommands;
 
         _commandManager = new CommandManager(metadata.Name);
+
+        bindConfigs?.Invoke(_configBinders);
     }
 
     internal void HandleOnLoad(IContextImports.Context context)
@@ -74,7 +79,10 @@ public class PumpkinRuntime
             try
             {
                 var pluginContext = new PumpkinPluginContext(
-                    PumpkinLogger.CreateLogger(Metadata.Name ?? "Plugin")
+                    PumpkinLogger.CreateLogger(Metadata.Name ?? "Plugin"),
+                    context.GetDataFolder(),
+                    Plugin.GetType().Assembly,
+                    _configBinders
                 );
 
                 Plugin.BindContext(pluginContext);

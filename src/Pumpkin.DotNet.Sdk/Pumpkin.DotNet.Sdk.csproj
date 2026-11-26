@@ -12,7 +12,7 @@
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <NoWarn>$(NoWarn);NU5128;CS2008</NoWarn>
 
-    <PackageVersion>0.1.0-alpha</PackageVersion>    
+    <PackageVersion>0.2.0-alpha</PackageVersion>    
   </PropertyGroup>
 
   <ItemGroup>

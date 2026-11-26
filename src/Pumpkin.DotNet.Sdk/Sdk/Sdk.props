@@ -8,6 +8,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>
     <TrimMode>full</TrimMode>
@@ -28,7 +30,7 @@
     <PublishTrimmed>true</PublishTrimmed>
     <UseAppHost>false</UseAppHost>
 
-    <PumpkinDotNetVersion>0.1.0-alpha</PumpkinDotNetVersion>
+    <PumpkinDotNetVersion>0.2.0-alpha</PumpkinDotNetVersion>
 
     <StackTraceSupport>false</StackTraceSupport>
     <IlcDisableReflection>true</IlcDisableReflection>
@@ -39,12 +41,20 @@
                       Version="$(PumpkinDotNetVersion)" />
 
     <PackageReference Include="Pumpkin.DotNet.Runtime"
-                      Version="$(PumpkinDotNetVersion)"
-                       />
+                      Version="$(PumpkinDotNetVersion)" />
+
     <PackageReference Include="Pumpkin.DotNet.SourceGenerator"
                       Version="$(PumpkinDotNetVersion)"
                       PrivateAssets="all"
                       GeneratePathProperty="true" />
+
+    <PackageReference Include="Microsoft.Extensions.Primitives" 
+                      Version="11.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="config.toml" Condition="Exists('config.toml')" />
+    <EmbeddedResource Include="config.json" Condition="Exists('config.json')" />
   </ItemGroup>
 
   <PropertyGroup>

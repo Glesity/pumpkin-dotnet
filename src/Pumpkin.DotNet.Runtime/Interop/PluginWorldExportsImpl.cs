@@ -1,3 +1,4 @@
+using Microsoft.VisualBasic;
 using PluginWorld;
 using PluginWorld.wit.Exports.pumpkin.plugin.v0_1_0;
 using PluginWorld.wit.Imports.pumpkin.plugin.v0_1_0;
@@ -181,7 +182,7 @@ internal class MetadataExportsImpl : IMetadataExports
             [.. metadata.Authors],
             metadata.Description,
             [],
-            []
+            [.. metadata.Permissions ?? []]
         );
     }
 }

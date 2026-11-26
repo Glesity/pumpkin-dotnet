@@ -31,6 +31,7 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
     private const string CommandContextTypeName = "Pumpkin.DotNet.Api.Commands.ICommandContext";
     private const string ServerTypeName = "Pumpkin.DotNet.Api.Server.IServer";
     private const string LoggerTypeName = "Pumpkin.DotNet.Api.Logging.ILogger";
+    private const string ConfigurationTypeName = "Microsoft.Extensions.Configuration.IConfiguration";
 
     private static readonly DiagnosticDescriptor MissingPluginError = new(
         id: "PMP001",
@@ -77,6 +78,28 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
         isEnabledByDefault: true
     );
 
+    private static readonly DiagnosticDescriptor InvalidEventReturnTypeError = new(
+        id: "PMP006",
+        title: "Invalid event handler return type",
+        messageFormat: "Event handler method '{0}' on '{1}' has unsupported return type '{2}'. Event handlers must return 'void'. Use 'PumpkinTask.Spawn' for asynchronous work.",
+        category: "Pumpkin.SourceGenerator",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true
+    );
+
+    private enum FsAccessLevel
+    {
+        None = 0,
+        ReadData = 1,
+        WriteData = 2
+    }
+
+    private sealed class ConfigUsageModel(INamedTypeSymbol? configType, FsAccessLevel accessLevel)
+    {
+        public INamedTypeSymbol? ConfigType { get; } = configType;
+        public FsAccessLevel AccessLevel { get; } = accessLevel;
+    }
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var optionsProvider = context.AnalyzerConfigOptionsProvider
@@ -102,6 +125,12 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
                 transform: static (ctx, ct) => GetCommandClassInfo(ctx, ct))
             .Where(static x => x is not null);
 
+        var configUsages = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) => IsConfigCandidateNode(node),
+                transform: static (ctx, ct) => AnalyzeConfigUsage(ctx, ct))
+            .Where(static x => x is not null);
+
         var compilationAndPlugins = pluginsProvider
             .Collect()
             .Select(static (plugins, _) => plugins
@@ -111,11 +140,12 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
             .Combine(optionsProvider)
             .Combine(context.CompilationProvider)
             .Combine(eventMethods.Collect())
-            .Combine(commandClasses.Collect());
+            .Combine(commandClasses.Collect())
+            .Combine(configUsages.Collect());
 
         context.RegisterSourceOutput(compilationAndPlugins, static (spc, source) =>
         {
-            var ((((plugins, options), compilation), methods), commands) = source;
+            var (((((plugins, options), compilation), methods), commands), configs) = source;
             if (plugins.IsDefaultOrEmpty)
             {
                 spc.ReportDiagnostic(Diagnostic.Create(MissingPluginError, Location.None));
@@ -136,8 +166,75 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
             }
 
             var info = ExtractMetadata(plugins[0]!, options, compilation);
-            Generate(spc, plugins[0]!, info, methods!, commands!);
+            Generate(spc, plugins[0]!, info, methods!, commands!, configs!);
         });
+    }
+
+    private static bool IsConfigCandidateNode(SyntaxNode node)
+    {
+        if (node is InvocationExpressionSyntax invocation)
+        {
+            var name = invocation.Expression switch
+            {
+                SimpleNameSyntax s => s.Identifier.Text,
+                MemberAccessExpressionSyntax { Name: SimpleNameSyntax s } => s.Identifier.Text,
+                _ => null
+            };
+
+            return name is "GetConfig" or "SaveConfig" or "SaveDefaultConfig" or "ReloadConfig" or "GetConfigFiles" or "RegisterConfigFormat";
+        }
+
+        if (node is MemberAccessExpressionSyntax { Name.Identifier.Text: "Configuration" })
+            return true;
+
+        if (node is IdentifierNameSyntax { Identifier.Text: "Configuration" })
+            return true;
+
+        return false;
+    }
+
+    private static ConfigUsageModel? AnalyzeConfigUsage(GeneratorSyntaxContext context, CancellationToken ct)
+    {
+        var symbol = context.SemanticModel.GetSymbolInfo(context.Node, ct).Symbol;
+        if (symbol is null)
+            return null;
+
+        var containingType = symbol.ContainingType?.ToDisplayString();
+        if (containingType is not (
+            "Pumpkin.DotNet.Api.Plugins.IPluginContext" or
+            "Pumpkin.DotNet.Api.Plugins.PumpkinPlugin"))
+        {
+            return null;
+        }
+
+        if (symbol is IPropertySymbol { Name: "Configuration" })
+            return new ConfigUsageModel(null, FsAccessLevel.ReadData);
+
+        if (symbol is IMethodSymbol method)
+        {
+            var access = method.Name switch
+            {
+                "SaveDefaultConfig" or "SaveConfig" => FsAccessLevel.WriteData,
+                "GetConfig" or "ReloadConfig" or "GetConfigFiles" => FsAccessLevel.ReadData,
+                _ => FsAccessLevel.None
+            };
+
+            if (access == FsAccessLevel.None)
+                return null;
+
+            INamedTypeSymbol? targetType = null;
+            if (method.Name is "GetConfig" or "SaveConfig" &&
+                method.TypeArguments.FirstOrDefault() is INamedTypeSymbol named &&
+                named.TypeKind != TypeKind.TypeParameter &&
+                !named.IsAbstract)
+            {
+                targetType = named;
+            }
+
+            return new ConfigUsageModel(targetType, access);
+        }
+
+        return null;
     }
 
     private static CommandClassModel? GetCommandClassInfo(GeneratorAttributeSyntaxContext ctx, CancellationToken ct)
@@ -145,7 +242,6 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
         if (ctx.TargetSymbol is not INamedTypeSymbol classSymbol)
             return null;
 
-        // Allow static classes (Roslyn reports IsAbstract == true and IsStatic == true for them).
         if ((classSymbol.IsAbstract && !classSymbol.IsStatic) || classSymbol.IsGenericType)
             return null;
 
@@ -204,7 +300,6 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
             {
                 string typeFull = p.Type.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString();
 
-                // 1. Check whether the parameter is an injectable service.
                 if (typeFull == CommandContextTypeName)
                 {
                     allCallParams.Add(new ExecuteParamSlot(isBrigadierArg: false, injectedExpr: "ctx", brigadierArgIndex: -1));
@@ -220,8 +315,12 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
                     allCallParams.Add(new ExecuteParamSlot(isBrigadierArg: false, injectedExpr: "plugin.Logger", brigadierArgIndex: -1));
                     continue;
                 }
+                if (typeFull == ConfigurationTypeName)
+                {
+                    allCallParams.Add(new ExecuteParamSlot(isBrigadierArg: false, injectedExpr: "plugin.Configuration", brigadierArgIndex: -1));
+                    continue;
+                }
 
-                // 2. Otherwise, treat it as a Brigadier command argument.
                 var argAttr = p.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == ArgAttributeFullName);
                 var sugAttr = p.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == SuggestAttributeFullName);
 
@@ -308,17 +407,13 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
             string typeFull = p.Type.WithNullableAnnotation(NullableAnnotation.NotAnnotated).ToDisplayString();
 
             if (typeFull == CommandContextTypeName)
-            {
                 args.Add("ctx");
-            }
             else if (typeFull == ServerTypeName)
-            {
                 args.Add("plugin.Server");
-            }
             else if (typeFull == LoggerTypeName)
-            {
                 args.Add("plugin.Logger");
-            }
+            else if (typeFull == ConfigurationTypeName)
+                args.Add("plugin.Configuration");
             else if (p.Type.SpecialType == SpecialType.System_String && !stringConsumed)
             {
                 args.Add("input");
@@ -354,6 +449,7 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
         var eventBaseInterface = compilation.GetTypeByMetadataName("Pumpkin.DotNet.Api.Events.IEvent");
         var serverInterface = compilation.GetTypeByMetadataName(ServerTypeName);
         var loggerInterface = compilation.GetTypeByMetadataName(LoggerTypeName);
+        var configurationInterface = compilation.GetTypeByMetadataName(ConfigurationTypeName);
 
         var eventType = TryGetEventType(method.Parameters, eventBaseInterface);
         if (eventType is null)
@@ -363,7 +459,7 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
 
         foreach (var param in method.Parameters)
         {
-            var paramType = param.Type;
+            var paramType = param.Type.WithNullableAnnotation(NullableAnnotation.NotAnnotated);
 
             if (SymbolEqualityComparer.Default.Equals(paramType, eventType))
                 arguments.Add("evt");
@@ -371,6 +467,8 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
                 arguments.Add("plugin.Server");
             else if (SymbolEqualityComparer.Default.Equals(paramType, loggerInterface))
                 arguments.Add("plugin.Logger");
+            else if (SymbolEqualityComparer.Default.Equals(paramType, configurationInterface))
+                arguments.Add("plugin.Configuration");
             else
                 return null;
         }
@@ -401,6 +499,8 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
             method.Name,
             arguments.ToArray(),
             eventType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            method.ReturnType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+            method.ReturnsVoid,
             method.IsStatic,
             priority,
             isModifying,
@@ -480,6 +580,16 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
         options.TryGetValue("build_property.Version", out var version);
         options.TryGetValue("build_property.Authors", out var authors);
         options.TryGetValue("build_property.Description", out var description);
+        options.TryGetValue("build_property.PluginPermissions", out var rawPermissions);
+
+        var permissionsArray = string.IsNullOrWhiteSpace(rawPermissions)
+            ? Array.Empty<string>()
+            : rawPermissions!
+                .Split([';', ','], StringSplitOptions.RemoveEmptyEntries)
+                .Select(static p => p.Trim())
+                .Where(static p => !string.IsNullOrEmpty(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
 
         string finalAuthors = !string.IsNullOrWhiteSpace(authors) ? authors! : "Unknown";
         var authorsArray = finalAuthors
@@ -503,7 +613,8 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
             name: name ?? minimalTypeName,
             version: version ?? "0.1.0",
             authors: authorsArray,
-            description: description ?? string.Empty
+            description: description ?? string.Empty,
+            permissions: permissionsArray
         );
     }
 
@@ -512,14 +623,79 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
         INamedTypeSymbol pluginSymbol,
         PluginInfo plugin,
         ImmutableArray<EventMethodModel> methods,
-        ImmutableArray<CommandClassModel> commands)
+        ImmutableArray<CommandClassModel> commands,
+        ImmutableArray<ConfigUsageModel> configUsages)
     {
         var safeVersion = EscapeString(plugin.Version);
         var safeDescription = EscapeString(plugin.Description);
         var safeName = EscapeString(plugin.Name);
         var authorsLiteral = string.Join(", ", plugin.Authors.Select(a => $"\"{EscapeString(a)}\""));
 
-        // --- 1. Generate BindEvents ---
+        var maxFsAccess = FsAccessLevel.None;
+        foreach (var usage in configUsages)
+        {
+            if (usage.AccessLevel > maxFsAccess)
+                maxFsAccess = usage.AccessLevel;
+        }
+
+        bool usesConfigurationDi =
+            methods.Any(m => m.Arguments.Contains("plugin.Configuration")) ||
+            commands.Any(c => c.Methods.Any(m =>
+                m.CallSlots.Any(s => s.InjectedExpr == "plugin.Configuration") ||
+                m.BrigadierArgs.Any(a => a.Suggest?.Arguments.Contains("plugin.Configuration") == true)));
+
+        if (usesConfigurationDi && maxFsAccess < FsAccessLevel.ReadData)
+            maxFsAccess = FsAccessLevel.ReadData;
+
+        var finalPermissions = new HashSet<string>(plugin.Permissions, StringComparer.OrdinalIgnoreCase);
+        if (maxFsAccess == FsAccessLevel.WriteData)
+        {
+            finalPermissions.Remove("fs.read.data");
+            finalPermissions.Add("fs.write.data");
+        }
+        else if (maxFsAccess == FsAccessLevel.ReadData && !finalPermissions.Contains("fs.write.data"))
+        {
+            finalPermissions.Add("fs.read.data");
+        }
+
+        var permissionsLiteral = string.Join(", ", finalPermissions.Select(p => $"\"{EscapeString(p)}\""));
+
+        var distinctConfigTypes = configUsages
+            .Where(static u => u.ConfigType is not null)
+            .Select(static u => u.ConfigType!)
+            .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default)
+            .ToList();
+
+        var configRegistrarBuilder = new StringBuilder();
+        var configMethodsBuilder = new StringBuilder();
+
+        for (int i = 0; i < distinctConfigTypes.Count; i++)
+        {
+            var type = distinctConfigTypes[i];
+            var fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            configRegistrarBuilder.AppendLine($"        registrar.Register<{fullName}>(BindConfig_{i}, SerializeConfig_{i});");
+
+            configMethodsBuilder.AppendLine();
+            configMethodsBuilder.AppendLine($"    private static {fullName} BindConfig_{i}(IReadOnlyDictionary<string, string?> values)");
+            configMethodsBuilder.AppendLine("    {");
+            configMethodsBuilder.AppendLine($"        var cfg = new {fullName}();");
+            int varIndex = 0;
+            var visited = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default) { type };
+            EmitBindProperties(configMethodsBuilder, type, "cfg", prefix: "", indent: "        ", visited, ref varIndex);
+            configMethodsBuilder.AppendLine("        return cfg;");
+            configMethodsBuilder.AppendLine("    }");
+
+            configMethodsBuilder.AppendLine();
+            configMethodsBuilder.AppendLine($"    private static Dictionary<string, string?> SerializeConfig_{i}({fullName} config)");
+            configMethodsBuilder.AppendLine("    {");
+            configMethodsBuilder.AppendLine("        var dict = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);");
+            int serIndex = 0;
+            var serVisited = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default) { type };
+            EmitSerializeProperties(configMethodsBuilder, type, "config", keyPrefix: "", isDynamicPrefix: false, indent: "        ", serVisited, ref serIndex);
+            configMethodsBuilder.AppendLine("        return dict;");
+            configMethodsBuilder.AppendLine("    }");
+        }
+
         var eventsBuilder = new StringBuilder();
         var listenerInstances = new HashSet<string>();
 
@@ -532,6 +708,17 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
                     method.Location,
                     method.MethodName,
                     method.ContainingType.Name));
+                continue;
+            }
+
+            if (!method.ReturnsVoid)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidEventReturnTypeError,
+                    method.Location,
+                    method.MethodName,
+                    method.ContainingType.Name,
+                    method.ReturnTypeDisplay));
                 continue;
             }
 
@@ -576,7 +763,6 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
             """);
         }
 
-        // --- 2. Generate BindCommands ---
         var commandsBuilder = new StringBuilder();
         var commandInstances = new Dictionary<string, string>();
 
@@ -716,10 +902,13 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
             #nullable enable
 
             using System;
+            using System.Collections.Generic;
+            using System.Globalization;
             using System.Runtime.InteropServices;
             using Pumpkin.DotNet.Api.Plugins;
             using Pumpkin.DotNet.Api.Events;
             using Pumpkin.DotNet.Api.Commands;
+            using Pumpkin.DotNet.Runtime.Configuration;
 
             public static class PumpkinPluginEntryPoint
             {
@@ -732,12 +921,20 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
                             "{{safeName}}",
                             "{{safeVersion}}",
                             new string[] { {{authorsLiteral}} },
-                            "{{safeDescription}}"
+                            "{{safeDescription}}",
+                            new string[] { {{permissionsLiteral}} }
                         ),
                         BindEvents,
-                        BindCommands
+                        BindCommands,
+                        BindConfigs
                     );
                 }
+
+                private static void BindConfigs(IConfigBinderRegistrar registrar)
+                {
+            {{configRegistrarBuilder}}
+                }
+            {{configMethodsBuilder}}
 
                 private static void BindEvents(PumpkinPlugin rawPlugin, IEventRegistrar registrar)
                 {
@@ -756,6 +953,548 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
         context.AddSource(
             "PumpkinPluginEntryPoint.g.cs",
             SourceText.From(source, Encoding.UTF8));
+    }
+
+    private static void EmitBindProperties(
+        StringBuilder sb,
+        ITypeSymbol type,
+        string targetExpr,
+        string prefix,
+        string indent,
+        HashSet<ITypeSymbol> visited,
+        ref int varIndex)
+    {
+        foreach (var prop in GetWritableProperties(type))
+        {
+            var key = ToSnakeCase(prop.Name);
+            var fullKey = string.IsNullOrEmpty(prefix) ? key : $"{prefix}:{key}";
+            var propExpr = $"{targetExpr}.{prop.Name}";
+            var propType = UnwrapNullable(prop.Type);
+
+            if (IsScalarType(propType))
+            {
+                EmitScalarBind(sb, propType, propExpr, fullKey, indent, ref varIndex);
+            }
+            else if (TryGetSequenceElementType(propType, out var elementType))
+            {
+                var unwrappedElem = UnwrapNullable(elementType!);
+                if (IsScalarType(unwrappedElem))
+                {
+                    EmitScalarListBind(sb, propType, unwrappedElem, propExpr, fullKey, indent, ref varIndex);
+                }
+                else if (IsComplexObjectType(unwrappedElem) && visited.Add(unwrappedElem))
+                {
+                    EmitObjectListBind(sb, propType, unwrappedElem, propExpr, fullKey, indent, visited, ref varIndex);
+                    visited.Remove(unwrappedElem);
+                }
+            }
+            else if (IsComplexObjectType(propType) && visited.Add(propType))
+            {
+                var nestedTypeName = propType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                if (!propType.IsValueType)
+                    sb.AppendLine($"{indent}{propExpr} ??= new {nestedTypeName}();");
+
+                EmitBindProperties(sb, propType, propExpr, fullKey, indent, visited, ref varIndex);
+                visited.Remove(propType);
+            }
+        }
+    }
+
+    private static void EmitScalarBind(
+        StringBuilder sb,
+        ITypeSymbol propType,
+        string propExpr,
+        string key,
+        string indent,
+        ref int idx)
+    {
+        var rawVar = $"v{idx++}";
+        var parsedVar = $"p{idx++}";
+        var escapedKey = EscapeString(key);
+
+        if (propType.SpecialType == SpecialType.System_String)
+        {
+            sb.AppendLine($"{indent}if (values.TryGetValue(\"{escapedKey}\", out var {rawVar}) && {rawVar} is not null)");
+            sb.AppendLine($"{indent}    {propExpr} = {rawVar};");
+            return;
+        }
+
+        var parseExpr = BuildScalarTryParseExpression(propType, rawVar, parsedVar);
+        if (parseExpr is not null)
+        {
+            sb.AppendLine($"{indent}if (values.TryGetValue(\"{escapedKey}\", out var {rawVar}) && {parseExpr})");
+            sb.AppendLine($"{indent}    {propExpr} = {parsedVar};");
+        }
+    }
+
+    private static void EmitScalarListBind(
+        StringBuilder sb,
+        ITypeSymbol listType,
+        ITypeSymbol elementType,
+        string propExpr,
+        string keyPrefix,
+        string indent,
+        ref int idx)
+    {
+        var listVar = $"list{idx++}";
+        var iVar = $"i{idx++}";
+        var rawVar = $"raw{idx++}";
+        var itemVar = $"item{idx++}";
+        var elemFullName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var escapedPrefix = EscapeString(keyPrefix);
+
+        sb.AppendLine($"{indent}if (values.ContainsKey(\"{escapedPrefix}:0\"))");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{indent}    var {listVar} = new List<{elemFullName}>();");
+        sb.AppendLine($"{indent}    for (int {iVar} = 0; values.TryGetValue($\"{escapedPrefix}:{{{iVar}}}\", out var {rawVar}); {iVar}++)");
+        sb.AppendLine($"{indent}    {{");
+
+        if (elementType.SpecialType == SpecialType.System_String)
+        {
+            sb.AppendLine($"{indent}        if ({rawVar} is not null) {listVar}.Add({rawVar});");
+        }
+        else
+        {
+            var parseExpr = BuildScalarTryParseExpression(elementType, rawVar, itemVar);
+            if (parseExpr is not null)
+                sb.AppendLine($"{indent}        if ({parseExpr}) {listVar}.Add({itemVar});");
+        }
+
+        sb.AppendLine($"{indent}    }}");
+        sb.AppendLine($"{indent}    {propExpr} = {listVar}{(listType.TypeKind == TypeKind.Array ? ".ToArray()" : "")};");
+        sb.AppendLine($"{indent}}}");
+    }
+
+    private static void EmitObjectListBind(
+        StringBuilder sb,
+        ITypeSymbol listType,
+        ITypeSymbol elementType,
+        string propExpr,
+        string keyPrefix,
+        string indent,
+        HashSet<ITypeSymbol> visited,
+        ref int idx)
+    {
+        var listVar = $"objList{idx++}";
+        var iVar = $"idx{idx++}";
+        var itemPrefixVar = $"pfx{idx++}";
+        var itemVar = $"obj{idx++}";
+        var elemFullName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var escapedPrefix = EscapeString(keyPrefix);
+
+        var firstProp = GetWritableProperties(elementType).FirstOrDefault();
+        if (firstProp is null)
+            return;
+
+        var firstKey = ToSnakeCase(firstProp.Name);
+
+        sb.AppendLine($"{indent}if (values.ContainsKey(\"{escapedPrefix}:0:{firstKey}\"))");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{indent}    var {listVar} = new List<{elemFullName}>();");
+        sb.AppendLine($"{indent}    for (int {iVar} = 0; ; {iVar}++)");
+        sb.AppendLine($"{indent}    {{");
+        sb.AppendLine($"{indent}        var {itemPrefixVar} = $\"{escapedPrefix}:{{{iVar}}}\";");
+        sb.AppendLine($"{indent}        bool hasAny = false;");
+        sb.AppendLine($"{indent}        foreach (var k in values.Keys)");
+        sb.AppendLine($"{indent}        {{");
+        sb.AppendLine($"{indent}            if (k.StartsWith({itemPrefixVar} + \":\", StringComparison.OrdinalIgnoreCase)) {{ hasAny = true; break; }}");
+        sb.AppendLine($"{indent}        }}");
+        sb.AppendLine($"{indent}        if (!hasAny) break;");
+        sb.AppendLine($"{indent}        var {itemVar} = new {elemFullName}();");
+
+        EmitDynamicPrefixBindProperties(sb, elementType, itemVar, itemPrefixVar, indent + "        ", visited, ref idx);
+
+        sb.AppendLine($"{indent}        {listVar}.Add({itemVar});");
+        sb.AppendLine($"{indent}    }}");
+        sb.AppendLine($"{indent}    {propExpr} = {listVar}{(listType.TypeKind == TypeKind.Array ? ".ToArray()" : "")};");
+        sb.AppendLine($"{indent}}}");
+    }
+
+    private static void EmitDynamicPrefixBindProperties(
+        StringBuilder sb,
+        ITypeSymbol type,
+        string targetExpr,
+        string prefixVarExpr,
+        string indent,
+        HashSet<ITypeSymbol> visited,
+        ref int idx)
+    {
+        foreach (var prop in GetWritableProperties(type))
+        {
+            var key = ToSnakeCase(prop.Name);
+            var propExpr = $"{targetExpr}.{prop.Name}";
+            var propType = UnwrapNullable(prop.Type);
+
+            if (IsScalarType(propType))
+            {
+                var rawVar = $"v{idx++}";
+                var parsedVar = $"p{idx++}";
+                if (propType.SpecialType == SpecialType.System_String)
+                {
+                    sb.AppendLine($"{indent}if (values.TryGetValue($\"{{{prefixVarExpr}}}:{key}\", out var {rawVar}) && {rawVar} is not null)");
+                    sb.AppendLine($"{indent}    {propExpr} = {rawVar};");
+                }
+                else
+                {
+                    var parseExpr = BuildScalarTryParseExpression(propType, rawVar, parsedVar);
+                    if (parseExpr is not null)
+                    {
+                        sb.AppendLine($"{indent}if (values.TryGetValue($\"{{{prefixVarExpr}}}:{key}\", out var {rawVar}) && {parseExpr})");
+                        sb.AppendLine($"{indent}    {propExpr} = {parsedVar};");
+                    }
+                }
+            }
+            else if (IsComplexObjectType(propType) && visited.Add(propType))
+            {
+                var nestedTypeName = propType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var subPrefixVar = $"subPfx{idx++}";
+                if (!propType.IsValueType)
+                    sb.AppendLine($"{indent}{propExpr} ??= new {nestedTypeName}();");
+
+                sb.AppendLine($"{indent}var {subPrefixVar} = $\"{{{prefixVarExpr}}}:{key}\";");
+                EmitDynamicPrefixBindProperties(sb, propType, propExpr, subPrefixVar, indent, visited, ref idx);
+                visited.Remove(propType);
+            }
+        }
+    }
+
+    private static string? BuildScalarTryParseExpression(ITypeSymbol type, string rawVar, string outVar)
+    {
+        var fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
+        if (type.SpecialType == SpecialType.System_Boolean)
+            return $"bool.TryParse({rawVar}, out var {outVar})";
+
+        if (type.SpecialType is
+            SpecialType.System_Byte or SpecialType.System_SByte or
+            SpecialType.System_Int16 or SpecialType.System_UInt16 or
+            SpecialType.System_Int32 or SpecialType.System_UInt32 or
+            SpecialType.System_Int64 or SpecialType.System_UInt64 or
+            SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal)
+        {
+            return $"{fullName}.TryParse({rawVar}, NumberStyles.Any, CultureInfo.InvariantCulture, out var {outVar})";
+        }
+
+        if (type.TypeKind == TypeKind.Enum)
+            return $"Enum.TryParse<{fullName}>({rawVar}, ignoreCase: true, out var {outVar})";
+
+        var metadataName = type.ToDisplayString();
+        if (metadataName is "System.Guid" or "System.TimeSpan" or "System.DateTime" or "System.DateTimeOffset" or "System.DateOnly" or "System.TimeOnly")
+            return $"{fullName}.TryParse({rawVar}, CultureInfo.InvariantCulture, out var {outVar})";
+
+        if (ImplementsIParsable(type))
+            return $"{fullName}.TryParse({rawVar}, CultureInfo.InvariantCulture, out var {outVar})";
+
+        return null;
+    }
+
+    private static void EmitSerializeProperties(
+        StringBuilder sb,
+        ITypeSymbol type,
+        string sourceExpr,
+        string keyPrefix,
+        bool isDynamicPrefix,
+        string indent,
+        HashSet<ITypeSymbol> visited,
+        ref int idx)
+    {
+        foreach (var prop in GetWritableProperties(type))
+        {
+            var propType = UnwrapNullable(prop.Type);
+            var key = ToSnakeCase(prop.Name);
+            var fullKeyExpr = BuildKeyExpression(keyPrefix, key, isDynamicPrefix);
+            var valExpr = $"{sourceExpr}.{prop.Name}";
+
+            if (IsScalarType(propType))
+            {
+                EmitScalarSerialize(sb, prop.Type, propType, fullKeyExpr, valExpr, indent);
+            }
+            else if (TryGetSequenceElementType(propType, out var elemType))
+            {
+                var unwrappedElem = UnwrapNullable(elemType!);
+                if (IsScalarType(unwrappedElem))
+                    EmitScalarListSerialize(sb, unwrappedElem, fullKeyExpr, valExpr, indent, ref idx);
+                else if (IsComplexObjectType(unwrappedElem) && visited.Add(unwrappedElem))
+                {
+                    EmitObjectListSerialize(sb, unwrappedElem, fullKeyExpr, valExpr, indent, visited, ref idx);
+                    visited.Remove(unwrappedElem);
+                }
+            }
+            else if (IsComplexObjectType(propType) && visited.Add(propType))
+            {
+                if (!prop.Type.IsValueType)
+                {
+                    sb.AppendLine($"{indent}if ({valExpr} is not null)");
+                    sb.AppendLine($"{indent}{{");
+                    EmitSerializeProperties(sb, propType, valExpr, fullKeyExpr, isDynamicPrefix, indent + "    ", visited, ref idx);
+                    sb.AppendLine($"{indent}}}");
+                }
+                else
+                {
+                    EmitSerializeProperties(sb, propType, valExpr, fullKeyExpr, isDynamicPrefix, indent, visited, ref idx);
+                }
+
+                visited.Remove(propType);
+            }
+        }
+    }
+
+    private static string BuildKeyExpression(string prefix, string key, bool isDynamicPrefix)
+    {
+        if (string.IsNullOrEmpty(prefix))
+            return $"\"{EscapeString(key)}\"";
+
+        if (isDynamicPrefix)
+            return $"$\"{{{prefix}}}:{EscapeString(key)}\"";
+
+        var rawPrefix = prefix.Trim('"');
+        return $"\"{rawPrefix}:{EscapeString(key)}\"";
+    }
+
+    private static void EmitScalarSerialize(
+        StringBuilder sb,
+        ITypeSymbol originalType,
+        ITypeSymbol unwrappedType,
+        string keyExpr,
+        string valExpr,
+        string indent)
+    {
+        var isNullable = originalType.NullableAnnotation == NullableAnnotation.Annotated ||
+                         originalType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T;
+
+        if (isNullable)
+        {
+            sb.AppendLine($"{indent}if ({valExpr} is not null)");
+            indent += "    ";
+            if (originalType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+                valExpr += ".Value";
+        }
+
+        var formatted = FormatScalarValue(unwrappedType, valExpr);
+        sb.AppendLine($"{indent}dict[{keyExpr}] = {formatted};");
+    }
+
+    private static void EmitScalarListSerialize(
+        StringBuilder sb,
+        ITypeSymbol elementType,
+        string keyExpr,
+        string valExpr,
+        string indent,
+        ref int idx)
+    {
+        var listIdxVar = $"i{idx++}";
+        var itemVar = $"item{idx++}";
+        var formattedItem = FormatScalarValue(elementType, itemVar);
+        var rawKey = keyExpr.Trim('"');
+
+        sb.AppendLine($"{indent}if ({valExpr} is not null)");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{indent}    int {listIdxVar} = 0;");
+        sb.AppendLine($"{indent}    foreach (var {itemVar} in {valExpr})");
+        sb.AppendLine($"{indent}    {{");
+        if (!elementType.IsValueType)
+            sb.AppendLine($"{indent}        if ({itemVar} is null) continue;");
+
+        if (keyExpr.StartsWith("$\""))
+            sb.AppendLine($"{indent}        dict[$\"{{{keyExpr}}}:{{{listIdxVar}++}}\"] = {formattedItem};");
+        else
+            sb.AppendLine($"{indent}        dict[$\"{rawKey}:{{{listIdxVar}++}}\"] = {formattedItem};");
+
+        sb.AppendLine($"{indent}    }}");
+        sb.AppendLine($"{indent}}}");
+    }
+
+    private static void EmitObjectListSerialize(
+        StringBuilder sb,
+        ITypeSymbol elementType,
+        string keyExpr,
+        string valExpr,
+        string indent,
+        HashSet<ITypeSymbol> visited,
+        ref int idx)
+    {
+        var listIdxVar = $"i{idx++}";
+        var itemVar = $"elem{idx++}";
+        var itemPrefixVar = $"elemPfx{idx++}";
+        var rawKey = keyExpr.Trim('"');
+
+        sb.AppendLine($"{indent}if ({valExpr} is not null)");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{indent}    int {listIdxVar} = 0;");
+        sb.AppendLine($"{indent}    foreach (var {itemVar} in {valExpr})");
+        sb.AppendLine($"{indent}    {{");
+        if (!elementType.IsValueType)
+            sb.AppendLine($"{indent}        if ({itemVar} is null) continue;");
+
+        if (keyExpr.StartsWith("$\""))
+            sb.AppendLine($"{indent}        var {itemPrefixVar} = $\"{{{keyExpr}}}:{{{listIdxVar}++}}\";");
+        else
+            sb.AppendLine($"{indent}        var {itemPrefixVar} = $\"{rawKey}:{{{listIdxVar}++}}\";");
+
+        EmitSerializeProperties(sb, elementType, itemVar, itemPrefixVar, isDynamicPrefix: true, indent + "        ", visited, ref idx);
+        sb.AppendLine($"{indent}    }}");
+        sb.AppendLine($"{indent}}}");
+    }
+
+    private static string FormatScalarValue(ITypeSymbol type, string expr)
+    {
+        if (type.SpecialType == SpecialType.System_String)
+            return expr;
+
+        if (type.SpecialType == SpecialType.System_Boolean)
+            return $"({expr} ? \"true\" : \"false\")";
+
+        if (type.SpecialType is
+            SpecialType.System_Byte or SpecialType.System_SByte or
+            SpecialType.System_Int16 or SpecialType.System_UInt16 or
+            SpecialType.System_Int32 or SpecialType.System_UInt32 or
+            SpecialType.System_Int64 or SpecialType.System_UInt64 or
+            SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal)
+        {
+            return $"Convert.ToString({expr}, CultureInfo.InvariantCulture)";
+        }
+
+        if (type.ToDisplayString() is "System.Guid" or "System.TimeSpan" or "System.DateTime" or "System.DateTimeOffset" or "System.DateOnly" or "System.TimeOnly")
+            return $"{expr}.ToString(null, CultureInfo.InvariantCulture)";
+
+        return $"{expr}.ToString()";
+    }
+
+    private static IEnumerable<IPropertySymbol> GetWritableProperties(ITypeSymbol type) =>
+        type.GetMembers()
+            .OfType<IPropertySymbol>()
+            .Where(p => !p.IsStatic &&
+                        p.DeclaredAccessibility == Accessibility.Public &&
+                        p.GetMethod is not null &&
+                        p.SetMethod is not null &&
+                        p.SetMethod.DeclaredAccessibility == Accessibility.Public &&
+                        !p.IsIndexer);
+
+    private static ITypeSymbol UnwrapNullable(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable)
+            return nullable.TypeArguments[0];
+
+        return type.WithNullableAnnotation(NullableAnnotation.NotAnnotated);
+    }
+
+    private static bool IsScalarType(ITypeSymbol t)
+    {
+        if (t.SpecialType is
+            SpecialType.System_String or
+            SpecialType.System_Boolean or
+            SpecialType.System_Byte or SpecialType.System_SByte or
+            SpecialType.System_Int16 or SpecialType.System_UInt16 or
+            SpecialType.System_Int32 or SpecialType.System_UInt32 or
+            SpecialType.System_Int64 or SpecialType.System_UInt64 or
+            SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal)
+        {
+            return true;
+        }
+
+        if (t.TypeKind == TypeKind.Enum)
+            return true;
+
+        var fullName = t.ToDisplayString();
+        if (fullName is "System.Guid" or "System.TimeSpan" or "System.DateTime" or "System.DateTimeOffset" or "System.DateOnly" or "System.TimeOnly")
+            return true;
+
+        return ImplementsIParsable(t);
+    }
+
+    private static bool ImplementsIParsable(ITypeSymbol type)
+    {
+        foreach (var iface in type.AllInterfaces)
+        {
+            if (iface.IsGenericType &&
+                iface.OriginalDefinition.ToDisplayString() == "System.IParsable<TSelf>")
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool TryGetSequenceElementType(ITypeSymbol type, out ITypeSymbol? elementType)
+    {
+        if (type.SpecialType == SpecialType.System_String)
+        {
+            elementType = null;
+            return false;
+        }
+
+        if (type is IArrayTypeSymbol arrayType)
+        {
+            elementType = arrayType.ElementType;
+            return true;
+        }
+
+        if (type is INamedTypeSymbol { IsGenericType: true } named)
+        {
+            var orig = named.OriginalDefinition.ToDisplayString();
+            if (orig is
+                "System.Collections.Generic.List<T>" or
+                "System.Collections.Generic.IList<T>" or
+                "System.Collections.Generic.ICollection<T>" or
+                "System.Collections.Generic.IReadOnlyList<T>" or
+                "System.Collections.Generic.IReadOnlyCollection<T>" or
+                "System.Collections.Generic.IEnumerable<T>")
+            {
+                elementType = named.TypeArguments[0];
+                return true;
+            }
+        }
+
+        elementType = null;
+        return false;
+    }
+
+    private static bool IsComplexObjectType(ITypeSymbol type)
+    {
+        if (type.TypeKind is not (TypeKind.Class or TypeKind.Struct))
+            return false;
+
+        if (type.IsAbstract || type.SpecialType != SpecialType.None)
+            return false;
+
+        if (type is INamedTypeSymbol named)
+        {
+            return named.InstanceConstructors.Any(c =>
+                c.Parameters.Length == 0 &&
+                c.DeclaredAccessibility == Accessibility.Public);
+        }
+
+        return false;
+    }
+
+    private static string ToSnakeCase(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return name;
+
+        var sb = new StringBuilder(name.Length + 4);
+        for (int i = 0; i < name.Length; i++)
+        {
+            char c = name[i];
+            if (c == '_')
+            {
+                if (sb.Length > 0 && sb[sb.Length - 1] != '_')
+                    sb.Append('_');
+                continue;
+            }
+
+            if (char.IsUpper(c))
+            {
+                if (i > 0 && sb.Length > 0 && sb[sb.Length - 1] != '_')
+                    sb.Append('_');
+                sb.Append(char.ToLowerInvariant(c));
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString();
     }
 
     private static void AppendCommandExecutes(
@@ -829,13 +1568,20 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
         public object?[] Args { get; } = args;
     }
 
-    private sealed class PluginInfo(string typeName, string name, string version, string[] authors, string description)
+    private sealed class PluginInfo(
+        string typeName,
+        string name,
+        string version,
+        string[] authors,
+        string description,
+        string[] permissions)
     {
         public string TypeName { get; } = typeName;
         public string Name { get; } = name;
         public string Version { get; } = version;
         public string[] Authors { get; } = authors;
         public string Description { get; } = description;
+        public string[] Permissions { get; } = permissions;
     }
 
     private sealed class EventMethodModel(
@@ -843,6 +1589,8 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
         string methodName,
         string[] arguments,
         string eventTypeFullName,
+        string returnTypeDisplay,
+        bool returnsVoid,
         bool isStatic,
         int priority,
         bool isModifying,
@@ -853,6 +1601,8 @@ public sealed class PumpkinPluginGenerator : IIncrementalGenerator
         public string MethodName = methodName;
         public string[] Arguments = arguments;
         public string EventTypeFullName = eventTypeFullName;
+        public string ReturnTypeDisplay = returnTypeDisplay;
+        public bool ReturnsVoid = returnsVoid;
         public bool IsStatic = isStatic;
         public int Priority = priority;
         public bool IsModifying = isModifying;

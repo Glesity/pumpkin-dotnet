@@ -31,6 +31,7 @@ public static class GeneratorTestHelper
 
         EnsureReference<PumpkinPlugin>(references);
         EnsureReference<PumpkinRuntime>(references);
+        EnsureReference<Microsoft.Extensions.Configuration.IConfiguration>(references);
 
         var compilation = CSharpCompilation.Create(
             assemblyName: "TestPluginAssembly",

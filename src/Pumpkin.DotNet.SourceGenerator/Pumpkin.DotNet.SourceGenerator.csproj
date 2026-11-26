@@ -16,7 +16,7 @@
     <OutputItemType>Analyzer</OutputItemType>
 
     <PackageId>Pumpkin.DotNet.SourceGenerator</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>0.2.0-alpha</Version>
     <Authors>Glesity</Authors>
     <Description>Source Generator for PumpkinMC plugins</Description>
   </PropertyGroup>

@@ -9,3 +9,4 @@ PMP002 | Pumpkin.SourceGenerator | Error | MultiplePluginsError
 PMP003 | Pumpkin.SourceGenerator | Error | MissingParameterlessCtorError
 PMP004 | Pumpkin.SourceGenerator | Error | InvalidSuggestMethodError
 PMP005 | Pumpkin.SourceGenerator | Error | InaccessibleHandlerMethodError
+PMP006 | Pumpkin.SourceGenerator | Error | InvalidEventReturnTypeError

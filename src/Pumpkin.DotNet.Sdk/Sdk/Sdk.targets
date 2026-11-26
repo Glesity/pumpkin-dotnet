@@ -60,6 +60,7 @@
     <CompilerVisibleProperty Include="Version" />
     <CompilerVisibleProperty Include="Authors" />
     <CompilerVisibleProperty Include="Description" />
+    <CompilerVisibleProperty Include="PluginPermissions" />
     <CompilerVisibleProperty Include="AssemblyName" />
   </ItemGroup>
 
