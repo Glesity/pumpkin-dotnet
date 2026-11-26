@@ -58,31 +58,51 @@
   </UsingTask>
 
   <!-- ============================================================
-       Apply generated-code collision fixes
+       1. Apply generated-code collision fixes strictly after wit-bindgen
        ============================================================ -->
-  <Target Name="StripWitInitPluginExport" BeforeTargets="CoreCompile" DependsOnTargets="WitCompile_BeforeCsCompile">
+  <Target Name="StripWitInitPluginExport"
+          AfterTargets="WitCompile_BeforeCsCompile"
+          BeforeTargets="RunWitPostProcessor">
 
     <ItemGroup>
-      <_WitPluginFile Include="$(ProjectDir)$(IntermediateOutputPath)wit_bindgen/**/*Plugin.cs" />
+      <_WitPluginFile Include="$(MSBuildProjectDirectory)/$(IntermediateOutputPath)wit_bindgen/**/*Plugin.cs" />
     </ItemGroup>
 
-    <StripWitInitPluginExportTask FilePath="%(_WitPluginFile.Identity)" Condition="Exists('%(_WitPluginFile.Identity)')" />
+    <StripWitInitPluginExportTask
+      FilePath="%(_WitPluginFile.Identity)"
+      Condition="Exists('%(_WitPluginFile.Identity)')" />
   </Target>
 
   <!-- ============================================================
-       Split WIT switch code
+       2. Split WIT switch code strictly after StripWitInitPluginExport
        ============================================================ -->
   <PropertyGroup>
     <_WitPostProcessorProject>$(MSBuildThisFileDirectory)..\..\tools\Pumpkin.DotNet.Tools.WitPostProcessor\Pumpkin.DotNet.Tools.WitPostProcessor.csproj</_WitPostProcessorProject>
   </PropertyGroup>
 
-  <Target Name="RunWitPostProcessor" BeforeTargets="CoreCompile" DependsOnTargets="ResolveProjectReferences;WitCompile_BeforeCsCompile">
+  <Target Name="RunWitPostProcessor"
+          AfterTargets="StripWitInitPluginExport"
+          BeforeTargets="CoreCompile"
+          DependsOnTargets="ResolveProjectReferences;WitCompile_BeforeCsCompile">
 
-    <MSBuild Projects="$(_WitPostProcessorProject)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+    <PropertyGroup>
+      <_WitBindgenDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/$(IntermediateOutputPath)wit_bindgen'))</_WitBindgenDir>
+    </PropertyGroup>
+
+    <MSBuild Projects="$(_WitPostProcessorProject)"
+             Targets="GetTargetPath"
+             Properties="Configuration=$(Configuration)">
       <Output TaskParameter="TargetOutputs" PropertyName="_WitPostProcessorDll" />
     </MSBuild>
 
-    <Exec Command="dotnet &quot;$(_WitPostProcessorDll)&quot; --directory &quot;$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)wit_bindgen'))&quot;" />
+    <Exec Condition="Exists('$(_WitBindgenDir)')"
+          Command="dotnet &quot;$(_WitPostProcessorDll)&quot; --directory &quot;$(_WitBindgenDir)&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)" />
+
+    <ItemGroup Condition="Exists('$(_WitBindgenDir)')">
+      <Compile Remove="@(Compile)" Condition="!Exists('%(Compile.FullPath)')" />
+      <Compile Include="$(_WitBindgenDir)/**/*.cs" Exclude="@(Compile)" />
+    </ItemGroup>
   </Target>
 
   <!-- ============================================================
@@ -94,7 +114,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\Pumpkin.DotNet.SourceGenerator\bin\$(Configuration)\netstandard2.0\Pumpkin.DotNet.SourceGenerator.dll" Pack="true" PackagePath="analyzers\dotnet\cs\" Visible="false" />
+    <None Include="..\Pumpkin.DotNet.SourceGenerator\bin\$(Configuration)\netstandard2.0\Pumpkin.DotNet.SourceGenerator.dll"
+          Pack="true"
+          PackagePath="analyzers\dotnet\cs\"
+          Visible="false" />
   </ItemGroup>
 
   <ItemGroup>
