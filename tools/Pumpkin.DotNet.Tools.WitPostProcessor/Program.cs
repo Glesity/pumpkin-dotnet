@@ -8,7 +8,7 @@ namespace Pumpkin.DotNet.Tools.WitPostProcessor;
 internal static class Program
 {
     public const string MarkerToolName = "WitPostProcessor";
-    public const string MarkerToolVersion = "1.0.0";
+    public const string MarkerToolVersion = "1.1.0";
     private const string MarkerCommentPrefix = "// WitPostProcessor:";
 
     private static int Main(string[] args)
@@ -101,7 +101,9 @@ internal static class Program
 
     private static int ProcessFile(string inputPath, string outputPath)
     {
-        string sourceText = File.ReadAllText(inputPath, Encoding.UTF8);
+        string sourceText = ReadAllTextWithRetry(inputPath);
+        if (sourceText.Length == 0 && !File.Exists(inputPath))
+            return 0;
 
         // Quickly check for the marker without building the AST.
         if (HasCurrentMarkerFast(sourceText))
@@ -114,11 +116,14 @@ internal static class Program
             return 0;
         }
 
+        // Hide wit-bindgen's default init-plugin export so SourceGenerator's entry point wins.
+        sourceText = StripInitPluginExport(sourceText);
+
         bool hasPreviousMarker = sourceText.Contains(MarkerCommentPrefix, StringComparison.Ordinal) ||
                                  (sourceText.Contains("GeneratedCode", StringComparison.Ordinal) &&
                                   sourceText.Contains(MarkerToolName, StringComparison.Ordinal));
 
-        // If the file does not need modification, add only the marker.
+        // If the file does not need AST modification, write marker (and init-plugin fix if applied).
         if (!hasPreviousMarker && !MayRequireSyntaxRewrite(sourceText))
         {
             WriteMarkerOnly(outputPath, sourceText);
@@ -135,10 +140,9 @@ internal static class Program
         if (existingVersion == null)
             TryGetCommentMarkerVersion(sourceText, out existingVersion);
 
-        string fileName = Path.GetFileName(inputPath);
-        bool isCollisionTargetFile = fileName.EndsWith("IRecipeImports.cs", StringComparison.OrdinalIgnoreCase) ||
-                            fileName.EndsWith("IBedrockPacketsImports.cs", StringComparison.OrdinalIgnoreCase) ||
-                            fileName.Equals("Plugin.cs", StringComparison.OrdinalIgnoreCase);
+        bool hasTagCollisionCandidates =
+            sourceText.Contains("RecipeItemDescriptor", StringComparison.Ordinal) ||
+            sourceText.Contains("Ingredient", StringComparison.Ordinal);
 
         if (existingVersion != null)
         {
@@ -152,25 +156,25 @@ internal static class Program
             }
 
             Console.WriteLine($"[WitPostProcessor] Migrating file from version {existingVersion} to {MarkerToolVersion}...");
-            
+
             var migratedAbiCounts = new AbiCountRewriter();
             var migratedRoot = (CompilationUnitSyntax)migratedAbiCounts.Visit(root)!;
-            
+
             var migratedLoopBounds = new LoopBoundRewriter();
             migratedRoot = (CompilationUnitSyntax)migratedLoopBounds.Visit(migratedRoot)!;
-            
+
             var migratedPointerReads = new PointerReadRewriter();
             migratedRoot = (CompilationUnitSyntax)migratedPointerReads.Visit(migratedRoot)!;
-            
+
             var migratedEmptySwitches = new EmptySwitchRewriter();
             migratedRoot = (CompilationUnitSyntax)migratedEmptySwitches.Visit(migratedRoot)!;
 
-            if (isCollisionTargetFile)
+            if (hasTagCollisionCandidates)
             {
                 var migratedMethodTagCollision = new MethodTagCollisionRewriter();
                 migratedRoot = (CompilationUnitSyntax)migratedMethodTagCollision.Visit(migratedRoot)!;
             }
-            
+
             migratedRoot = UpdateGeneratedMarkerVersion(migratedRoot, MarkerToolName, MarkerToolVersion);
 
             WriteOutput(outputPath, migratedRoot);
@@ -207,7 +211,7 @@ internal static class Program
         var emptySwitchRewriter = new EmptySwitchRewriter();
         newRoot = emptySwitchRewriter.Visit(newRoot);
 
-        if (isCollisionTargetFile)
+        if (hasTagCollisionCandidates)
         {
             var isolatedRewriter = new MethodTagCollisionRewriter();
             newRoot = isolatedRewriter.Visit(newRoot);
@@ -217,6 +221,46 @@ internal static class Program
 
         WriteOutput(outputPath, (CompilationUnitSyntax)newRoot);
         return 0;
+    }
+
+    private static string StripInitPluginExport(string sourceText)
+    {
+        if (!sourceText.Contains("EntryPoint = \"init-plugin\"", StringComparison.Ordinal))
+            return sourceText;
+
+        return sourceText.Replace(
+            "[global::System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute(EntryPoint = \"init-plugin\")]",
+            "[global::System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute(EntryPoint = \"init-plugin-hidden\")]",
+            StringComparison.Ordinal);
+    }
+
+    private static string ReadAllTextWithRetry(string path, int maxAttempts = 5)
+    {
+        for (int i = 0; i < maxAttempts; i++)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    if (i < maxAttempts - 1)
+                    {
+                        Thread.Sleep(50);
+                        continue;
+                    }
+                    return string.Empty;
+                }
+
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                return reader.ReadToEnd();
+            }
+            catch (IOException) when (i < maxAttempts - 1)
+            {
+                Thread.Sleep(50);
+            }
+        }
+
+        return File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8) : string.Empty;
     }
 
     private static bool MayRequireSyntaxRewrite(string sourceText)

@@ -10,13 +10,19 @@
     <TrimMode>full</TrimMode>
 
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    
+
     <!-- The SDK target in preview00011 contains a typo in this property name. -->
     <WitBindgenAdditionalArgs>--internal</WitBindgenAdditionalArgs>
     <WitBindgenAddtionalArgs>--internal</WitBindgenAddtionalArgs>
 
     <Version>0.2.0-alpha</Version>
     <PackageId>Pumpkin.DotNet.Runtime</PackageId>
+    <Authors>Glesity</Authors>
+    <Description>Pumpkin.NET runtime.</Description>
+    <PackageTags>pumpkin;minecraft;dotnet;csharp;wasm;wasi;nativeaot;source-generator</PackageTags>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/Glesity/pumpkin-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
 
     <NoWarn>$(NoWarn);CS0618;NETSDK1057</NoWarn>
   </PropertyGroup>
@@ -25,62 +31,24 @@
     <PackageReference Include="BytecodeAlliance.Componentize.DotNet.WitBindgen" Version="0.8.0-preview00011" />
 
     <ProjectReference Include="..\Pumpkin.DotNet.Api\Pumpkin.DotNet.Api.csproj" />
-    <ProjectReference Include="..\Pumpkin.DotNet.SourceGenerator\Pumpkin.DotNet.SourceGenerator.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" PrivateAssets="all" />
-    <ProjectReference Include="..\..\tools\Pumpkin.DotNet.Tools.WitPostProcessor\Pumpkin.DotNet.Tools.WitPostProcessor.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" PrivateAssets="all" />
+    <ProjectReference Include="..\Pumpkin.DotNet.SourceGenerator\Pumpkin.DotNet.SourceGenerator.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      PrivateAssets="all" />
+    <ProjectReference Include="..\..\tools\Pumpkin.DotNet.Tools.WitPostProcessor\Pumpkin.DotNet.Tools.WitPostProcessor.csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      PrivateAssets="all" />
   </ItemGroup>
 
-  <UsingTask TaskName="StripWitInitPluginExportTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
-    <ParameterGroup>
-      <FilePath ParameterType="System.String" Required="true" />
-    </ParameterGroup>
-    <Task>
-      <Code Type="Fragment" Language="cs"><![CDATA[
-        if (System.IO.File.Exists(FilePath))
-        {
-            var text = System.IO.File.ReadAllText(FilePath);
-            var original = text;
-
-            text = text.Replace(
-              """[global::System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute(EntryPoint = "init-plugin")]""",
-              """[global::System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute(EntryPoint = "init-plugin-hidden")]""");
-
-            if (text != original)
-            {
-                System.IO.File.WriteAllText(
-                    FilePath,
-                    text,
-                    new System.Text.UTF8Encoding(false));
-            }
-        }
-      ]]></Code>
-    </Task>
-  </UsingTask>
-
   <!-- ============================================================
-       1. Apply generated-code collision fixes strictly after wit-bindgen
-       ============================================================ -->
-  <Target Name="StripWitInitPluginExport"
-          AfterTargets="WitCompile_BeforeCsCompile"
-          BeforeTargets="RunWitPostProcessor">
-
-    <ItemGroup>
-      <_WitPluginFile Include="$(MSBuildProjectDirectory)/$(IntermediateOutputPath)wit_bindgen/**/*Plugin.cs" />
-    </ItemGroup>
-
-    <StripWitInitPluginExportTask
-      FilePath="%(_WitPluginFile.Identity)"
-      Condition="Exists('%(_WitPluginFile.Identity)')" />
-  </Target>
-
-  <!-- ============================================================
-       2. Split WIT switch code strictly after StripWitInitPluginExport
+       Post-process generated WIT bindings & resync @(Compile)
        ============================================================ -->
   <PropertyGroup>
     <_WitPostProcessorProject>$(MSBuildThisFileDirectory)..\..\tools\Pumpkin.DotNet.Tools.WitPostProcessor\Pumpkin.DotNet.Tools.WitPostProcessor.csproj</_WitPostProcessorProject>
   </PropertyGroup>
 
   <Target Name="RunWitPostProcessor"
-          AfterTargets="StripWitInitPluginExport"
           BeforeTargets="CoreCompile"
           DependsOnTargets="ResolveProjectReferences;WitCompile_BeforeCsCompile">
 
@@ -99,8 +67,16 @@
           WorkingDirectory="$(MSBuildProjectDirectory)" />
 
     <ItemGroup Condition="Exists('$(_WitBindgenDir)')">
-      <Compile Remove="@(Compile)" Condition="!Exists('%(Compile.FullPath)')" />
-      <Compile Include="$(_WitBindgenDir)/**/*.cs" Exclude="@(Compile)" />
+      <Compile Remove="@(Compile)"
+               Condition="$([System.String]::Copy('%(Compile.FullPath)').StartsWith('$(_WitBindgenDir)', System.StringComparison.OrdinalIgnoreCase))" />
+    </ItemGroup>
+
+    <CreateItem Include="$(_WitBindgenDir)/**/*.cs" Condition="Exists('$(_WitBindgenDir)')">
+      <Output TaskParameter="Include" ItemName="_PostProcessedWitCs" />
+    </CreateItem>
+
+    <ItemGroup>
+      <Compile Include="@(_PostProcessedWitCs)" />
     </ItemGroup>
   </Target>
 
