@@ -34,22 +34,13 @@
 
     <StackTraceSupport>false</StackTraceSupport>
     <IlcDisableReflection>true</IlcDisableReflection>
+
+    <RestoreEnablePackagePruning>false</RestoreEnablePackagePruning>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Pumpkin.DotNet.Api"
                       Version="$(PumpkinDotNetVersion)" />
-
-    <PackageReference Include="Pumpkin.DotNet.Runtime"
-                      Version="$(PumpkinDotNetVersion)" />
-
-    <PackageReference Include="Pumpkin.DotNet.SourceGenerator"
-                      Version="$(PumpkinDotNetVersion)"
-                      PrivateAssets="all"
-                      GeneratePathProperty="true" />
-
-    <PackageReference Include="Microsoft.Extensions.Primitives" 
-                      Version="11.0.0" />
   </ItemGroup>
 
   <ItemGroup>
