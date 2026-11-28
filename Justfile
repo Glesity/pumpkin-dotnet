@@ -7,6 +7,7 @@ nuget_cache := env_var_or_default("NUGET_PACKAGES", env_var("HOME") + "/.nuget/p
 clean:
     find . -type d \( -name bin -o -name obj \) -exec rm -rf {} +
     rm -rf "{{nupkgs_dir}}" "{{nuget_cache}}/pumpkin.dotnet"*
+    mkdir -p "{{nupkgs_dir}}"
 
 build-core:
     dotnet build src/Pumpkin.DotNet.SourceGenerator/Pumpkin.DotNet.SourceGenerator.csproj -c {{configuration}}
