@@ -80,7 +80,7 @@ jobs:
         id: nuget-login
         uses: NuGet/login@v1
         with:
-          user: Glesity
+          user: nixomi
 
       - name: Push packages to NuGet.org
         run: |
