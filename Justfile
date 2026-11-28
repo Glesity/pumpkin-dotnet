@@ -2,10 +2,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 configuration := "Release"
 nupkgs_dir := justfile_directory() + "/nupkgs"
+nuget_cache := env_var_or_default("NUGET_PACKAGES", env_var("HOME") + "/.nuget/packages")
 
 clean:
     find . -type d \( -name bin -o -name obj \) -exec rm -rf {} +
-    rm -rf "{{nupkgs_dir}}" ~/.nuget/packages/pumpkin.dotnet*
+    rm -rf "{{nupkgs_dir}}" "{{nuget_cache}}/pumpkin.dotnet"*
 
 build-core:
     dotnet build src/Pumpkin.DotNet.SourceGenerator/Pumpkin.DotNet.SourceGenerator.csproj -c {{configuration}}
@@ -23,6 +24,7 @@ pack: build-core
     dotnet pack src/Pumpkin.DotNet.Sdk/Pumpkin.DotNet.Sdk.csproj -c {{configuration}} -o "{{nupkgs_dir}}"
 
 build-sample: pack
+    rm -rf "{{nuget_cache}}/pumpkin.dotnet"*
     dotnet restore samples/Pumpkin.DotNet.Sample/Pumpkin.DotNet.Sample.csproj \
         --source "{{nupkgs_dir}}" \
         --source https://api.nuget.org/v3/index.json \

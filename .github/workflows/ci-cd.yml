@@ -1,0 +1,90 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+jobs:
+  build-test-pack:
+    name: Build, Test & E2E Sample Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (with WIT submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Nix (with Flakes enabled)
+        uses: DeterminateSystems/nix-installer-action@v16
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@v10
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/nuget.config', 'flake.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Run full CI pipeline (Build, Test, Pack & E2E Sample)
+        run: nix develop --command just ci
+
+      - name: Upload .nupkgs and Sample .wasm artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pumpkin-dotnet-packages
+          path: |
+            ./nupkgs/*.nupkg
+            samples/Pumpkin.DotNet.Sample/bin/Release/net11.0/wasi-wasm/native/*.wasm
+
+  publish-nuget:
+    name: Publish to NuGet.org
+    needs: build-test-pack
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download built .nupkgs
+        uses: actions/download-artifact@v4
+        with:
+          name: pumpkin-dotnet-packages
+          path: ./artifacts
+
+      - name: Setup .NET CLI for NuGet push
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Verify tag matches package version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          test -f "./artifacts/nupkgs/Pumpkin.DotNet.Sdk.${TAG_VERSION}.nupkg"
+          test -f "./artifacts/nupkgs/Pumpkin.DotNet.Api.${TAG_VERSION}.nupkg"
+          test -f "./artifacts/nupkgs/Pumpkin.DotNet.Runtime.${TAG_VERSION}.nupkg"
+
+      - name: NuGet login (Trusted Publishing OIDC)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: Glesity
+
+      - name: Push packages to NuGet.org
+        run: |
+          dotnet nuget push "./artifacts/nupkgs/*.nupkg" \
+            --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
